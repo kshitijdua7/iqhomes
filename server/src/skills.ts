@@ -1,5 +1,5 @@
 import { normalize } from './assistant.js';
-import type { HomeState, Routine, TimerItem } from './types.js';
+import type { HomeState, Routine, TimerItem, Trigger } from './types.js';
 
 /**
  * Nova's extra skills, checked before the device parser:
@@ -19,7 +19,8 @@ export type Skill =
   | { kind: 'defineRoutine'; phrase: string; actions: string }
   | { kind: 'deleteRoutine'; phrase: string }
   | { kind: 'listRoutines' }
-  | { kind: 'runRoutine'; routine: Routine };
+  | { kind: 'runRoutine'; routine: Routine }
+  | { kind: 'schedule'; trigger: Trigger; command: string; label: string };
 
 let n = 0;
 const id = () => `${Date.now().toString(36)}${(n++).toString(36)}`;
@@ -92,6 +93,28 @@ export function matchSkill(raw: string, home: HomeState, by?: string, now = new 
   const phrase = cleanPhrase(text);
   const routine = home.routines.find((r) => phrase === r.phrase || phrase === `nova ${r.phrase}`);
   if (routine) return { kind: 'runRoutine', routine };
+
+  // --- schedules: "<command> at sunset every day", "every weekday at 6:30 set the heat to 21" ---------
+  const repeat = /\b(every ?day|every night|every evening|every morning|daily|each day|every weekday|on weekdays|every weekend|on weekends)\b/.exec(c);
+  if (repeat) {
+    const days = /weekday/.test(repeat[1]) ? [1, 2, 3, 4, 5] : /weekend/.test(repeat[1]) ? [0, 6] : undefined;
+    const sun = /\b(?:at |after |before )?(sunset|sunrise|dusk|dawn)\b/.exec(c);
+    let rest = c.replace(repeat[0], ' ');
+    let trigger: Trigger | undefined;
+    if (sun) {
+      trigger = { type: 'sun', event: /sunset|dusk/.test(sun[1]) ? 'sunset' : 'sunrise' };
+      rest = rest.replace(sun[0], ' ');
+    } else {
+      const at = /\bat\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?|noon|midnight)/.exec(rest);
+      if (at) {
+        const ms = parseClock(at[0], now, /morning/.test(repeat[1]));
+        if (ms) { const d = new Date(ms); trigger = { type: 'time', at: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`, days }; }
+        rest = rest.replace(at[0], ' ');
+      }
+    }
+    const command = rest.replace(/^\s*(,|and|then)\s*/, '').replace(/\s+/g, ' ').trim().replace(/[,.]$/, '');
+    if (trigger && command) return { kind: 'schedule', trigger, command, label: `${command} ${trigger.type === 'sun' ? `at ${trigger.event}` : `at ${trigger.type === 'time' ? trigger.at : ''}`}${days ? (days.length === 5 ? ' on weekdays' : ' on weekends') : ' every day'}` };
+  }
 
   // --- announcements ---------------------------------------------------------------------------
   const ann = /^(?:(?:hey |ok |okay )?nova,?\s+)?(?:announce|broadcast|tell everyone|tell the house)\s+(?:that\s+)?(.+)$/i.exec(text);

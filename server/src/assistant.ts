@@ -76,7 +76,7 @@ const NUMBER_WORDS: Record<string, number> = {
 export function normalize(text: string): string {
   let t = ` ${text.toLowerCase()} `
     .replace(/[’`]/g, "'")
-    .replace(/[^a-z0-9%°#' ,.-]/g, ' ')
+    .replace(/[^a-z0-9%°#' ,.:-]/g, ' ')
     .replace(/\b(hey |ok |okay )?nova\b/g, ' ')
     .replace(/\b(please|could you|can you|would you|i want you to|i'd like you to|for me|kindly)\b/g, ' ');
   // longest number words first so "twenty two" beats "twenty"
@@ -113,7 +113,7 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Devices added from the app (real switches) are matched by their own name first, longest name wins. */
 const findDevice = (c: string, home: HomeState) => {
   const named = home.devices
-    .filter((d) => d.integration && normalize(d.name).length > 1)
+    .filter((d) => (d.integration || d.custom) && normalize(d.name).length > 1)
     .sort((a, b) => b.name.length - a.name.length)
     .find((d) => new RegExp(`\\b${escapeRe(normalize(d.name))}s?\\b`).test(c));
   return named?.id ?? DEVICE_ALIASES.find(([re]) => re.test(c))?.[1];
@@ -212,7 +212,10 @@ export function interpret(text: string, home: HomeState): AssistantResult {
       continue;
     }
 
-    const explicitRoom = findRoom(c);
+    const explicitRoom = findRoom(c) ?? home.rooms
+      .filter((r) => !ROOM_WORDS.some(([, id]) => id === r.id))
+      .sort((a, b) => b.name.length - a.name.length)
+      .find((r) => new RegExp(`\\b${escapeRe(normalize(r.name))}\\b`).test(c))?.id;
     const deviceId = findDevice(c, home);
     let type = findType(c);
     let action = findAction(c);

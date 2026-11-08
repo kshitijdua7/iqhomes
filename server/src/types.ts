@@ -13,6 +13,8 @@ export interface BaseDevice {
   hardware?: HardwareInfo;
   /** Saved link to a real smart-home device added from the app (e.g. a Kasa switch). */
   integration?: Integration;
+  /** Added from the device manager (Nova matches it by name). */
+  custom?: boolean;
 }
 
 export type Integration = KasaIntegration | HubspaceIntegration | MerossIntegration;
@@ -123,6 +125,7 @@ export interface HomeState {
   security: SecurityState;
   /** Hourly energy use for the last week, priced with Ontario time-of-use rates. */
   usage: { hour: number; wh: number; cost: number }[];
+  automations: Automation[];
   tou: { period: 'off' | 'mid' | 'on'; cents: number; rates: Record<'off' | 'mid' | 'on', number>; today: ('off' | 'mid' | 'on')[]; tip: string };
 }
 
@@ -153,3 +156,6 @@ export interface Routine {
 
 /** A single change to one device. The UI and the voice assistant both produce these. */
 export type DevicePatch = { id: string; changes: Record<string, unknown> };
+
+export type { Automation, Trigger, Condition } from './automations.js';
+import type { Automation } from './automations.js';

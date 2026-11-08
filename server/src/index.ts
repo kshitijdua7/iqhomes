@@ -13,6 +13,7 @@ import { askBrain, aiEnabled, remember } from './brain.js';
 import { getWeather, weatherSentence } from './weather.js';
 import { frenchToEnglish } from './french.js';
 import { Security } from './security.js';
+import { TEMPLATES, describe as describeAutomation, dueByChange, dueByClock, dueBySecurity, validAutomation, type Automation } from './automations.js';
 import { Auth, DEFAULT_PINS, canControl, canManagePeople, canRunScenes, filterPatches, toPublic, type StoredUser } from './auth.js';
 import { Hardware, plugsFromEnv } from './hardware.js';
 import { Push, type Alert } from './push.js';
@@ -47,6 +48,8 @@ const saveHome = () => persist('state.json', () => ({
   routines: home.state.routines,
   security: { ...home.state.security, alarm: undefined },
   usage: home.state.usage,
+  rooms: home.state.rooms,
+  automations: home.state.automations,
 }));
 const firstRun = !load('auth.json');
 const auth: Auth = new Auth(load('auth.json'), () => persist('auth.json', () => auth.data));
@@ -119,14 +122,36 @@ const security: Security = new Security(home, {
     if (changed.length) afterChange(changed, undefined);
   },
 });
+const setSecurityMode = security.setMode.bind(security);
+security.setMode = (mode, by) => {
+  const reply = setSecurityMode(mode, by);
+  const auto = dueBySecurity(home.state.automations, mode, home.state);
+  if (auto.length) setImmediate(() => runAutomations(auto));
+  return reply;
+};
 home.sceneHook = (sceneId, by) => {
   if (sceneId === 'away' && home.state.security.mode !== 'away') security.setMode('away', by);
   if (sceneId === 'night' && home.state.security.mode === 'disarmed') security.setMode('home', by);
   if (sceneId === 'morning' && home.state.security.mode === 'home') security.setMode('disarmed', by);
 };
 
+/** Runs automations through Nova's normal parser, as the house itself. */
+function runAutomations(list: Automation[]) {
+  for (const a of list) {
+    a.lastRun = Date.now();
+    const r = interpret(a.then, home.state);
+    const changed: Device[] = [];
+    for (const sc of r.scenes) changed.push(...home.runScene(sc, 'scene'));
+    if (r.patches.length) changed.push(...home.apply(r.patches, 'scene', `⚙️ ${a.name}`));
+    if (changed.length) afterChange(changed, undefined);
+    else home.log('scene', `⚙️ ${a.name} (nothing to change)`);
+  }
+}
+
 function afterChange(changed: Device[], by: StoredUser | undefined) {
   hardware.sync(changed);
+  const auto = dueByChange(home.state.automations, changed, home.state);
+  if (auto.length) setImmediate(() => runAutomations(auto));
   for (const d of changed) if (d.type === 'sensor') security.onSensor(d);
   kasa.sync(changed);
   hubspace.sync(changed);
@@ -332,6 +357,92 @@ app.delete('/api/hubspace/devices/:id', requireUser, requireOwner, (req, res) =>
   res.json({ ok: true });
 });
 
+// ---- Device manager: rooms + devices (owner) ----
+const VIRTUAL_DEFAULTS: Record<string, Record<string, unknown>> = {
+  light: { on: false, brightness: 80, color: '#ffd9a0' }, blinds: { position: 100 }, fan: { on: false, speed: 2 },
+  plug: { on: false }, tv: { on: false, volume: 20 }, lock: { locked: true, battery: 100 }, garage: { open: false },
+  sensor: { kind: 'motion', triggered: false, battery: 100 },
+};
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'item';
+
+app.post('/api/rooms', requireUser, requireOwner, (req, res) => {
+  const name = String(req.body?.name ?? '').trim().slice(0, 24);
+  if (!name) { res.status(400).json({ error: 'Give the room a name.' }); return; }
+  let id = slug(name); while (home.state.rooms.some((r) => r.id === id)) id += '-2';
+  home.state.rooms.push({ id, name, icon: String(req.body?.icon ?? '🏠').slice(0, 4) });
+  home.log('system', `➕ Room "${name}" added`, (req as Authed).user.name);
+  broadcast(); res.json({ ok: true, id });
+});
+app.patch('/api/rooms/:id', requireUser, requireOwner, (req, res) => {
+  const r = home.state.rooms.find((x) => x.id === req.params.id);
+  if (!r) { res.status(404).json({ error: 'No such room.' }); return; }
+  if (typeof req.body?.name === 'string' && req.body.name.trim()) r.name = req.body.name.trim().slice(0, 24);
+  if (typeof req.body?.icon === 'string' && req.body.icon) r.icon = req.body.icon.slice(0, 4);
+  broadcast(); res.json({ ok: true });
+});
+app.delete('/api/rooms/:id', requireUser, requireOwner, (req, res) => {
+  const id = String(req.params.id);
+  if (home.state.devices.some((d) => d.room === id)) { res.status(400).json({ error: 'Move or delete the devices in this room first.' }); return; }
+  if (home.state.rooms.length <= 1) { res.status(400).json({ error: 'The house needs at least one room.' }); return; }
+  home.state.rooms = home.state.rooms.filter((r) => r.id !== id);
+  broadcast(); res.json({ ok: true });
+});
+
+app.post('/api/devices', requireUser, requireOwner, (req, res) => {
+  const { type, name, room, kind } = req.body ?? {};
+  if (!VIRTUAL_DEFAULTS[type]) { res.status(400).json({ error: 'Pick a device type.' }); return; }
+  if (!home.state.rooms.some((r) => r.id === room)) { res.status(400).json({ error: 'Pick a room.' }); return; }
+  const clean = String(name ?? '').trim().slice(0, 32);
+  if (!clean) { res.status(400).json({ error: 'Give the device a name.' }); return; }
+  let id = `${room}-${slug(clean)}`; while (home.device(id)) id += '-2';
+  const extra = type === 'sensor' && ['motion', 'contact', 'smoke', 'co', 'leak'].includes(kind) ? { kind } : {};
+  home.addDevice({ id, name: clean, room, type, watts: 0, custom: true, ...VIRTUAL_DEFAULTS[type], ...extra } as unknown as Device);
+  broadcast(); res.json({ ok: true, id });
+});
+app.patch('/api/devices/:id', requireUser, requireOwner, (req, res) => {
+  const d = home.device(String(req.params.id));
+  if (!d) { res.status(404).json({ error: 'No such device.' }); return; }
+  if (typeof req.body?.name === 'string' && req.body.name.trim()) { d.name = req.body.name.trim().slice(0, 32); d.custom = true; }
+  if (home.state.rooms.some((r) => r.id === req.body?.room)) d.room = req.body.room;
+  broadcast(); res.json({ ok: true });
+});
+app.delete('/api/devices/:id', requireUser, requireOwner, (req, res) => {
+  const d = home.removeDevice(String(req.params.id), true);
+  if (!d) { res.status(404).json({ error: 'No such device.' }); return; }
+  home.state.automations = home.state.automations.filter((a) => !JSON.stringify(a).includes(`"${d.id}"`));
+  broadcast(); res.json({ ok: true });
+});
+
+// ---- Automations (owner + family) ----
+const requireAdult = (req: Request, res: Response, next: NextFunction) => {
+  if ((req as Authed).user.role === 'guest') { res.status(403).json({ error: 'Guests can’t change automations.' }); return; }
+  next();
+};
+app.get('/api/automations/templates', requireUser, (_req, res) => res.json(TEMPLATES));
+app.post('/api/automations', requireUser, requireAdult, (req, res) => {
+  if (!validAutomation(req.body)) { res.status(400).json({ error: 'That automation is missing something.' }); return; }
+  const test = interpret(req.body.then, home.state);
+  if (!test.patches.length && !test.scenes.length) { res.status(400).json({ error: `Nova didn't understand "${req.body.then}". Try something like "turn on the porch light".` }); return; }
+  const a: Automation = {
+    id: `a${Date.now().toString(36)}`, name: String(req.body.name ?? '').trim().slice(0, 40) || 'My automation', enabled: true,
+    trigger: req.body.trigger, conditions: req.body.conditions, then: req.body.then.trim(), createdBy: (req as Authed).user.name,
+  };
+  home.state.automations.push(a);
+  home.log('system', `⚙️ Automation "${a.name}" created`, (req as Authed).user.name);
+  broadcast(); res.json({ ok: true, id: a.id, description: describeAutomation(a, home.state) });
+});
+app.patch('/api/automations/:id', requireUser, requireAdult, (req, res) => {
+  const a = home.state.automations.find((x) => x.id === req.params.id);
+  if (!a) { res.status(404).json({ error: 'No such automation.' }); return; }
+  if (typeof req.body?.enabled === 'boolean') a.enabled = req.body.enabled;
+  if (req.body?.run === true) runAutomations([a]);
+  broadcast(); res.json({ ok: true });
+});
+app.delete('/api/automations/:id', requireUser, requireAdult, (req, res) => {
+  home.state.automations = home.state.automations.filter((x) => x.id !== req.params.id);
+  broadcast(); res.json({ ok: true });
+});
+
 app.get('/api/push/key', (_req, res) => res.json({ key: push.publicKey }));
 app.post('/api/push/subscribe', requireUser, (req, res) => {
   const u = (req as Authed).user;
@@ -458,6 +569,16 @@ async function ask(user: StoredUser, rawText: string, lang: 'en' | 'fr' = 'en'):
         if (isGuest) return ok('Sorry, that’s not covered by your guest pass.');
         const m = home.state.security.mode;
         return ok(m === 'disarmed' ? 'The security system is off.' : `Yes, it's armed in ${m === 'away' ? 'Away' : 'Home'} mode.`);
+      }
+      case 'schedule': {
+        if (isGuest) return ok('Sorry, guests can’t create schedules.');
+        const test = interpret(skill.command, home.state);
+        if (!test.patches.length && !test.scenes.length) return ok(`I couldn't work out what to do: "${skill.command}".`);
+        const a: Automation = { id: `a${Date.now().toString(36)}`, name: skill.label[0].toUpperCase() + skill.label.slice(1), enabled: true, trigger: skill.trigger, conditions: [], then: skill.command, createdBy: user.name };
+        home.state.automations.push(a);
+        home.log('system', `🗓️ New schedule: ${a.name}`, user.name);
+        broadcast();
+        return ok(`Scheduled: ${describeAutomation(a, home.state).replace(/: /, ', I’ll ')}.`);
       }
       case 'weather': {
         const w = await getWeather();
@@ -605,6 +726,12 @@ setInterval(() => {
 
 // ---- Energy history: save + refresh screens every minute ----
 setInterval(() => broadcast(), 60_000).unref();
+
+// ---- Automations and schedules: check the clock every 20 seconds ----
+setInterval(() => {
+  const due = dueByClock(home.state.automations, home.state);
+  if (due.length) runAutomations(due);
+}, 20_000).unref();
 
 // ---- Presence simulation while away ----
 setInterval(() => security.presenceTick(home.state.weather?.sunset), 60_000).unref();

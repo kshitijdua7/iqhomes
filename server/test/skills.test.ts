@@ -60,3 +60,12 @@ describe('Nova skills', () => {
     expect(matchSkill('set the temperature to 22', home())).toBeUndefined();
   });
 });
+
+describe('schedules and automations', () => {
+  it('turns "every day" sentences into schedules', () => {
+    const s = matchSkill('turn on the porch light at sunset every day', home(), 'K', now);
+    expect(s).toMatchObject({ kind: 'schedule', trigger: { type: 'sun', event: 'sunset' }, command: 'turn on the porch light' });
+    const s2 = matchSkill('every weekday at 6:30 am set the temperature to 21', home(), 'K', now);
+    expect(s2).toMatchObject({ kind: 'schedule', trigger: { type: 'time', at: '06:30', days: [1, 2, 3, 4, 5] }, command: 'set the temperature to 21' });
+  });
+});

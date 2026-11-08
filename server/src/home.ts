@@ -96,7 +96,7 @@ export class Home {
 
   constructor(saved?: Partial<HomeState>) {
     this.state = {
-      rooms: ROOMS,
+      rooms: saved?.rooms?.length ? saved.rooms : ROOMS,
       scenes: SCENES,
       // hardware links are live-only: they're re-established when the board/plug reconnects
       devices: withNewDefaults((saved?.devices ?? createDevices()).map(({ hardware: _hw, ...d }) => d as Device)),
@@ -107,6 +107,7 @@ export class Home {
       routines: saved?.routines ?? [],
       security: { mode: 'disarmed', changedAt: Date.now(), presenceSim: true, ...saved?.security, alarm: undefined },
       usage: saved?.usage ?? [],
+      automations: saved?.automations ?? [],
       tou: touNow(),
     };
     this.recalcPower();
@@ -122,9 +123,9 @@ export class Home {
   }
 
   /** Removes a device that was added from the app. Built-in demo devices can't be removed. */
-  removeDevice(id: string): Device | undefined {
+  removeDevice(id: string, any = false): Device | undefined {
     const d = this.device(id);
-    if (!d?.integration) return undefined;
+    if (!d || (!d.integration && !any)) return undefined;
     this.state.devices = this.state.devices.filter((x) => x.id !== id);
     this.log('system', `➖ ${d.name} removed`);
     return d;

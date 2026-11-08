@@ -13,6 +13,8 @@ export interface BaseDevice {
   hardware?: HardwareInfo;
   /** Saved link to a real smart-home device added from the app (e.g. a Kasa switch). */
   integration?: Integration;
+  /** Added from the device manager (Nova matches it by name). */
+  custom?: boolean;
 }
 
 export type Integration = KasaIntegration | HubspaceIntegration | MerossIntegration;
@@ -123,6 +125,7 @@ export interface HomeState {
   security: SecurityState;
   /** Hourly energy use for the last week, priced with Ontario time-of-use rates. */
   usage: { hour: number; wh: number; cost: number }[];
+  automations: Automation[];
   tou: { period: 'off' | 'mid' | 'on'; cents: number; rates: Record<'off' | 'mid' | 'on', number>; today: ('off' | 'mid' | 'on')[]; tip: string };
 }
 
@@ -153,3 +156,19 @@ export interface Routine {
 
 /** A single change to one device. The UI and the voice assistant both produce these. */
 export type DevicePatch = { id: string; changes: Record<string, unknown> };
+
+export type Trigger =
+  | { type: 'time'; at: string; days?: number[] }
+  | { type: 'sun'; event: 'sunrise' | 'sunset'; offset?: number }
+  | { type: 'sensor'; deviceId: string; triggered: boolean }
+  | { type: 'device'; deviceId: string; field: 'on' | 'locked' | 'open'; value: boolean }
+  | { type: 'security'; mode: 'disarmed' | 'home' | 'away' };
+export type Condition =
+  | { type: 'dark' }
+  | { type: 'nobodyHome' }
+  | { type: 'between'; after: string; before: string }
+  | { type: 'device'; deviceId: string; field: 'on' | 'locked' | 'open'; value: boolean }
+  | { type: 'security'; mode: 'disarmed' | 'home' | 'away' };
+export interface Automation {
+  id: string; name: string; enabled: boolean; trigger: Trigger; conditions: Condition[]; then: string; createdBy?: string; lastRun?: number;
+}

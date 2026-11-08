@@ -7,6 +7,7 @@ import { KasaPanel } from './components/Kasa';
 import { HubspacePanel } from './components/Hubspace';
 import { AnnouncementBanner, RoutineChips, TimersCard, WeatherCard } from './components/NovaWidgets';
 import { AlarmOverlay, SecurityPanel } from './components/Security';
+import { AutomationsPanel, DeviceManager } from './components/Manager';
 import { api, loadSession, saveSession, timeLeft, type Session } from './session';
 import { DeviceCard } from './components/DeviceCard';
 import { ActivityFeed, ClimateCard, EnergyCard, ScenesBar } from './components/Widgets';
@@ -151,6 +152,8 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
             {user.role !== 'guest' && <SecurityPanel state={state} actions={security} isOwner={user.role === 'owner'} />}
             <WeatherCard w={state.weather} />
             {thermostat && <ClimateCard t={thermostat} outside={state.outsideTemp} update={update} />}
+            {user.role !== 'guest' && <AutomationsPanel session={session} state={state} />}
+            {user.role === 'owner' && <DeviceManager session={session} state={state} />}
             {user.role === 'owner' && <HubspacePanel session={session} rooms={state.rooms} />}
             {user.role === 'owner' && <KasaPanel session={session} rooms={state.rooms} />}
             {user.role === 'owner' && <HardwarePanel session={session} devices={state.devices} />}
