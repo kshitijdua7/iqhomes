@@ -132,7 +132,8 @@ export class HubspaceClient {
   }
 
   async devices(): Promise<HubspaceDevice[]> {
-    const res = await this.call(`${API}/v1/accounts/${this.tokens.accountId}/metadevices?expansions=state`);
+    // device list + state live on the "semantics" host (api2 answers 404 for this path)
+    const res = await this.call(`${STATE_API}/v1/accounts/${this.tokens.accountId}/metadevices?expansions=state`);
     if (!res.ok) throw new HubspaceError(`Couldn't list Hubspace devices (HTTP ${res.status})`);
     const list = await res.json() as RawDevice[];
     return list.filter((d) => d.typeId === 'metadevice.device').map(parseDevice);
