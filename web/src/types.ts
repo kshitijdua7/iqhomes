@@ -121,6 +121,9 @@ export interface HomeState {
   timers: TimerItem[];
   routines: Routine[];
   security: SecurityState;
+  /** Hourly energy use for the last week, priced with Ontario time-of-use rates. */
+  usage: { hour: number; wh: number; cost: number }[];
+  tou: { period: 'off' | 'mid' | 'on'; cents: number; rates: Record<'off' | 'mid' | 'on', number>; today: ('off' | 'mid' | 'on')[]; tip: string };
 }
 
 export interface WeatherInfo {

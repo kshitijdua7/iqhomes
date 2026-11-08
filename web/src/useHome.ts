@@ -32,8 +32,8 @@ export function useHome(token: string, onSignedOut: () => void) {
     s.on('connect_error', (err) => { if (err.message === 'unauthorized') signedOut.current(); });
     s.on('session:expired', () => signedOut.current());
     s.on('state', (next: HomeState) => setState(next));
-    s.on('tick', ({ devices, energy }: Pick<HomeState, 'devices' | 'energy'>) =>
-      setState((prev) => (prev ? { ...prev, devices, energy } : prev)));
+    s.on('tick', ({ devices, energy, tou }: Pick<HomeState, 'devices' | 'energy' | 'tou'>) =>
+      setState((prev) => (prev ? { ...prev, devices, energy, tou: tou ?? prev.tou } : prev)));
     s.on('alert', (a: { title: string; body: string }) => toast({ title: a.title, body: a.body, tone: 'warn' }));
     s.on('denied', (msg: string) => toast({ title: '🚫 Not allowed', body: msg, tone: 'warn' }));
     s.on('announce', (a: Omit<Announcement, 'id'>) => setAnnouncement({ ...a, id: Date.now() }));

@@ -50,8 +50,9 @@ export function EnergyCard({ state }: { state: HomeState }) {
   const w = 300, h = 80;
   const path = pts.map((p, i) => `${(i / Math.max(pts.length - 1, 1)) * w},${h - (p.watts / max) * (h - 6)}`).join(' L ');
   const top = [...state.devices].sort((a, b) => b.watts - a.watts).slice(0, 3);
-  const perHour = ((now / 1000) * 0.13).toFixed(2);
-  const perMonth = ((now / 1000) * 0.13 * 24 * 30).toFixed(0);
+  const cents = state.tou?.cents ?? 13;
+  const perHour = ((now / 1000) * (cents / 100)).toFixed(2);
+  const perMonth = ((now / 1000) * (cents / 100) * 24 * 30).toFixed(0);
 
   return (
     <section className="glass rounded-3xl p-5">
@@ -64,6 +65,7 @@ export function EnergyCard({ state }: { state: HomeState }) {
         <span className="mb-1 text-sm text-white/50">watts</span>
       </div>
       <div className="text-xs text-white/45">≈ ${perHour}/hour · ${perMonth}/month at this rate</div>
+      {state.tou && <TouStrip tou={state.tou} />}
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="mt-3 h-20 w-full" role="img" aria-label="Power use over the last few minutes">
         <defs>
           <linearGradient id="eg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#6f8cff" stopOpacity=".45" /><stop offset="1" stopColor="#6f8cff" stopOpacity="0" /></linearGradient>
@@ -82,6 +84,7 @@ export function EnergyCard({ state }: { state: HomeState }) {
           </li>
         ))}
       </ul>
+      {state.usage && <UsageHistory usage={state.usage} />}
     </section>
   );
 }
@@ -123,6 +126,59 @@ export function ScenesBar({ scenes, run }: { scenes: Scene[]; run: (id: string) 
           </span>
         </button>
       ))}
+    </div>
+  );
+}
+
+/* ---------------- Ontario time-of-use ---------------- */
+const TOU_COLOR = { off: '#4cd97b', mid: '#ffc94d', on: '#ff6b6b' } as const;
+const TOU_NAME = { off: 'Off-peak', mid: 'Mid-peak', on: 'On-peak' } as const;
+
+function TouStrip({ tou }: { tou: NonNullable<HomeState['tou']> }) {
+  const hour = new Date().getHours();
+  return (
+    <div className="mt-4 rounded-2xl bg-white/4 p-3">
+      <div className="flex items-center justify-between text-xs">
+        <span className="flex items-center gap-1.5 font-semibold" style={{ color: TOU_COLOR[tou.period] }}>
+          <span className="h-2 w-2 rounded-full" style={{ background: TOU_COLOR[tou.period] }} />{TOU_NAME[tou.period]} · {tou.cents}¢/kWh
+        </span>
+        <span className="text-white/40">Ontario TOU</span>
+      </div>
+      <div className="relative mt-2 flex h-2.5 gap-px overflow-hidden rounded-full" role="img" aria-label="Today's electricity prices by hour">
+        {tou.today.map((p, h) => <div key={h} className="flex-1" style={{ background: TOU_COLOR[p], opacity: h < hour ? 0.35 : 0.85 }} title={`${h}:00 ${TOU_NAME[p]}`} />)}
+        <div className="absolute -top-0.5 h-3.5 w-0.5 rounded bg-white shadow" style={{ left: `${((hour + new Date().getMinutes() / 60) / 24) * 100}%` }} />
+      </div>
+      <div className="mt-1 flex justify-between text-[9px] text-white/35"><span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>12a</span></div>
+      <p className="mt-2 text-[11px] leading-relaxed text-white/60">💡 {tou.tip}</p>
+    </div>
+  );
+}
+
+function UsageHistory({ usage }: { usage: NonNullable<HomeState['usage']> }) {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d0 = start.getTime() - (6 - i) * 86_400_000;
+    const hrs = usage.filter((u) => u.hour >= d0 && u.hour < d0 + 86_400_000);
+    return { d0, kwh: hrs.reduce((s, u) => s + u.wh, 0) / 1000, cost: hrs.reduce((s, u) => s + u.cost, 0) };
+  });
+  const max = Math.max(...days.map((d) => d.kwh), 0.1);
+  const week = days.reduce((s, d) => ({ kwh: s.kwh + d.kwh, cost: s.cost + d.cost }), { kwh: 0, cost: 0 });
+  const today = days[6];
+  return (
+    <div className="mt-4">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="text-white/60">Today <b className="font-semibold text-white">{today.kwh.toFixed(1)} kWh</b> · ${today.cost.toFixed(2)}</span>
+        <span className="text-white/40">Week {week.kwh.toFixed(1)} kWh · ${week.cost.toFixed(2)}</span>
+      </div>
+      <div className="mt-2 flex h-20 items-end gap-1.5" role="img" aria-label="Energy use for the last 7 days">
+        {days.map((d, i) => (
+          <div key={d.d0} className="flex flex-1 flex-col items-center gap-1">
+            <div className="w-full rounded-t-md bg-gradient-to-t from-nova/60 to-aqua/70 transition-all" style={{ height: `${Math.max(4, (d.kwh / max) * 64)}px`, opacity: i === 6 ? 1 : 0.65 }}
+                 title={`${d.kwh.toFixed(2)} kWh · $${d.cost.toFixed(2)}`} />
+            <span className="text-[9px] text-white/40">{new Date(d.d0).toLocaleDateString('en-CA', { weekday: 'narrow' })}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

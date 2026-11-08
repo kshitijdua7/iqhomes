@@ -46,6 +46,7 @@ const saveHome = () => persist('state.json', () => ({
   timers: home.state.timers,
   routines: home.state.routines,
   security: { ...home.state.security, alarm: undefined },
+  usage: home.state.usage,
 }));
 const firstRun = !load('auth.json');
 const auth: Auth = new Auth(load('auth.json'), () => persist('auth.json', () => auth.data));
@@ -602,6 +603,9 @@ setInterval(() => {
   broadcast();
 }, 1000).unref();
 
+// ---- Energy history: save + refresh screens every minute ----
+setInterval(() => broadcast(), 60_000).unref();
+
 // ---- Presence simulation while away ----
 setInterval(() => security.presenceTick(home.state.weather?.sunset), 60_000).unref();
 
@@ -623,7 +627,7 @@ setInterval(() => {
     const user = auth.userFor(s.data.token);
     if (!user) continue;
     const view = viewFor(user);
-    s.emit('tick', { devices: view.devices, energy: home.state.energy });
+    s.emit('tick', { devices: view.devices, energy: home.state.energy, tou: home.state.tou });
   }
 }, 2000);
 

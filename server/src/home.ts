@@ -1,3 +1,4 @@
+import { addUsage, periodAt, RATES, savingTip, todaysPeriods } from './energy.js';
 import type { ActivityEntry, Device, DevicePatch, HomeState, Room, Scene } from './types.js';
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(n)));
@@ -105,6 +106,8 @@ export class Home {
       timers: saved?.timers ?? [],
       routines: saved?.routines ?? [],
       security: { mode: 'disarmed', changedAt: Date.now(), presenceSim: true, ...saved?.security, alarm: undefined },
+      usage: saved?.usage ?? [],
+      tou: touNow(),
     };
     this.recalcPower();
   }
@@ -220,6 +223,8 @@ export class Home {
       t.current = Math.round((t.current + step) * 10) / 10;
     }
     this.recalcPower();
+    addUsage(this.state.usage, this.totalWatts(), 2);
+    this.state.tou = touNow();
     this.state.energy.push({ time: Date.now(), watts: this.totalWatts() });
     if (this.state.energy.length > 90) this.state.energy.shift();
   }
@@ -250,4 +255,9 @@ export function sensorWords(kind: string, triggered: boolean) {
     case 'leak': return triggered ? 'WATER LEAK DETECTED' : 'dry';
     default: return triggered ? 'triggered' : 'clear';
   }
+}
+
+export function touNow(now = new Date()) {
+  const period = periodAt(now);
+  return { period, cents: RATES[period], rates: RATES, today: todaysPeriods(now), tip: savingTip(now) };
 }

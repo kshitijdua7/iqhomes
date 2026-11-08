@@ -147,11 +147,25 @@ function answerQuestion(c: string, home: HomeState): string | undefined {
     const on = lights.filter((d) => d.type === 'light' && d.on);
     return on.length ? `${on.length} light${on.length > 1 ? 's are' : ' is'} on: ${on.map((d) => d.name).join(', ')}.` : 'All the lights are off.';
   }
+  if (/\b(cheap(est)?|price|rate|peak|time of use|tou)\b/.test(c) && /\b(power|electricity|energy|hydro|rate|price|peak|dishwasher|laundry|cheap(est)?)\b/.test(c)) {
+    return home.tou?.tip ?? 'I don’t have electricity prices right now.';
+  }
+  if (/\b(how much|what)\b.*\b(use|used|spend|spent|cost)\b.*\b(today|this week|week|yesterday)\b/.test(c) && home.usage) {
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    const since = /week/.test(c) ? dayStart.getTime() - 6 * 86_400_000 : /yesterday/.test(c) ? dayStart.getTime() - 86_400_000 : dayStart.getTime();
+    const until = /yesterday/.test(c) ? dayStart.getTime() : Infinity;
+    const hrs = home.usage.filter((u) => u.hour >= since && u.hour < until);
+    const kwh = hrs.reduce((s2, u) => s2 + u.wh, 0) / 1000, cost = hrs.reduce((s2, u) => s2 + u.cost, 0);
+    const when = /week/.test(c) ? 'this week' : /yesterday/.test(c) ? 'yesterday' : 'today';
+    return `${when[0].toUpperCase()}${when.slice(1)} the house has used ${kwh.toFixed(1)} kWh, about $${cost.toFixed(2)} at time-of-use rates.`;
+  }
   if (/\b(power|energy|electricity|watts|usage|consumption)\b/.test(c)) {
     const total = Math.round(home.devices.reduce((s, d) => s + d.watts, 0));
     const top = [...home.devices].sort((a, b) => b.watts - a.watts)[0];
-    const perHour = ((total / 1000) * 0.13).toFixed(2); // ~13¢/kWh Ontario average
-    return `The house is using ${total} watts right now, about $${perHour} an hour. Biggest draw: ${top.name}.`;
+    const cents = home.tou?.cents ?? 13;
+    const perHour = ((total / 1000) * (cents / 100)).toFixed(2);
+    const period = home.tou ? ` at the ${home.tou.period === 'off' ? 'off-peak' : home.tou.period === 'mid' ? 'mid-peak' : 'on-peak'} rate of ${cents}¢` : '';
+    return `The house is using ${total} watts right now, about $${perHour} an hour${period}. Biggest draw: ${top.name}.`;
   }
   if (/\bwhat time\b|\bthe time\b/.test(c)) return `It's ${new Date().toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' })}.`;
   if (/\b(who are you|your name|what are you)\b/.test(c)) return "I'm Nova, your home assistant. I control your lights, blinds, climate, locks and more.";
