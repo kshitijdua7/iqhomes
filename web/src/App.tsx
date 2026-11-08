@@ -4,6 +4,7 @@ import { Assistant } from './components/Assistant';
 import { DeviceCard } from './components/DeviceCard';
 import { ActivityFeed, ClimateCard, EnergyCard, ScenesBar } from './components/Widgets';
 import type { Thermostat } from './types';
+import { BeamsBackground } from '@/components/ui/beams-background';
 
 function useClock() {
   const [now, setNow] = useState(new Date());
@@ -25,13 +26,15 @@ export default function App() {
 
   if (!state) {
     return (
-      <div className="aurora grid min-h-full place-items-center">
-        <div className="relative z-10 text-center">
-          <div className="orb mx-auto h-24 w-24" data-mode="thinking"><span className="orb-glow" /><span className="orb-core" /></div>
-          <p className="mt-6 text-sm text-white/60">Connecting to your home…</p>
-          <p className="mt-1 text-xs text-white/35">Make sure the server is running (npm run dev in /server).</p>
+      <BeamsBackground intensity="medium">
+        <div className="grid min-h-screen place-items-center">
+          <div className="text-center">
+            <div className="orb mx-auto h-24 w-24" data-mode="thinking"><span className="orb-glow" /><span className="orb-core" /></div>
+            <p className="mt-6 text-sm text-white/60">Connecting to your home…</p>
+            <p className="mt-1 text-xs text-white/35">Make sure the server is running (npm run dev in /server).</p>
+          </div>
         </div>
-      </div>
+      </BeamsBackground>
     );
   }
 
@@ -41,7 +44,7 @@ export default function App() {
   const roomName = (id: string) => state.rooms.find((r) => r.id === id)?.name;
 
   return (
-    <div className="aurora min-h-full">
+    <BeamsBackground intensity="medium">
       <div className="relative z-10 mx-auto max-w-7xl px-4 pb-16 pt-6 sm:px-6">
         {/* Header */}
         <header className="flex flex-wrap items-center justify-between gap-4">
@@ -99,6 +102,6 @@ export default function App() {
           IQHomes · React + Node.js + Socket.io · built by Kshitij Dua
         </footer>
       </div>
-    </div>
+    </BeamsBackground>
   );
 }
