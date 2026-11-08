@@ -6,7 +6,7 @@ import path from 'node:path'
 // In development the React app runs on :5173 and forwards API + WebSocket traffic to the Node server on :4000.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { '@': path.resolve(__dirname, './src') } },
+  resolve: { alias: { '@': path.resolve(import.meta.dirname, './src') } },
   server: {
     host: true, // lets your phone on the same Wi-Fi open the dashboard too
     proxy: {
