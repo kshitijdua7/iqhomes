@@ -48,7 +48,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="orb h-9 w-9" data-mode="idle"><span className="orb-core" /></div>
             <div>
-              <div className="font-display text-lg font-semibold tracking-tight">Nova Home</div>
+              <div className="font-display text-lg font-semibold tracking-tight">IQHomes</div>
               <div className="flex items-center gap-1.5 text-[11px] text-white/45">
                 <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-400 animate-pulse'}`} />
                 {connected ? 'Connected · live' : 'Reconnecting…'}
@@ -96,7 +96,7 @@ export default function App() {
         </div>
 
         <footer className="mt-12 text-center text-[11px] text-white/30">
-          Nova Home · React + Node.js + Socket.io · built by Kshitij Dua
+          IQHomes · React + Node.js + Socket.io · built by Kshitij Dua
         </footer>
       </div>
     </div>

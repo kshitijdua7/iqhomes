@@ -1,4 +1,4 @@
-# 🏠 Nova Home
+# 🏠 IQHomes
 
 **A real-time smart home dashboard with "Nova", an Alexa-style voice assistant.**
 

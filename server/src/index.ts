@@ -27,7 +27,7 @@ function save() {
     writeFileSync(DATA_FILE, JSON.stringify({ devices: home.state.devices, activity: home.state.activity }, null, 2));
   }, 500);
 }
-if (!home.state.activity.length) home.log('system', 'Nova Home started');
+if (!home.state.activity.length) home.log('system', 'IQHomes started');
 
 // ---- HTTP + WebSocket server ----
 const app = express();
@@ -79,4 +79,4 @@ if (existsSync(WEB_DIST)) {
   app.get('*', (_req, res) => res.sendFile(join(WEB_DIST, 'index.html')));
 }
 
-http.listen(PORT, () => console.log(`🏠 Nova Home server running on http://localhost:${PORT}`));
+http.listen(PORT, () => console.log(`🏠 IQHomes server running on http://localhost:${PORT}`));

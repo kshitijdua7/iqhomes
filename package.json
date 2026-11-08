@@ -1,8 +1,8 @@
 {
-  "name": "nova-home",
+  "name": "iqhomes",
   "version": "1.0.0",
   "private": true,
-  "description": "Nova Home: a real-time smart home dashboard with an Alexa-style voice assistant",
+  "description": "IQHomes: a real-time smart home dashboard with an Alexa-style voice assistant",
   "scripts": {
     "setup": "npm install && npm install --prefix server && npm install --prefix web",
     "dev": "concurrently -n server,web -c magenta,cyan \"npm run dev --prefix server\" \"npm run dev --prefix web\"",
