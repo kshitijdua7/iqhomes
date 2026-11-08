@@ -111,3 +111,16 @@ input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; border-radius
 @keyframes alarmFlash { 0%, 100% { background: rgba(160, 0, 20, .82); } 50% { background: rgba(40, 0, 6, .9); } }
 @keyframes alarmBlue { 0%, 100% { background: rgba(0, 60, 160, .8); } 50% { background: rgba(0, 12, 40, .9); } }
 @media (prefers-reduced-motion: reduce) { .alarm-flash, .alarm-flash-blue, .cam-grain { animation: none; } .alarm-flash { background: rgba(120,0,20,.88); } }
+
+/* ---- 3D floor plan ---- */
+.floor-stage { display: grid; place-items: center; padding: 18px 0 8px; }
+.floor-plane { width: 100%; max-width: 560px; transform-style: preserve-3d; transition: transform .8s cubic-bezier(.2,.8,.2,1); }
+.floor-plane.tilted { transform: rotateX(52deg) rotateZ(-28deg) scale(.92); }
+.room-3d { transform-style: preserve-3d; }
+.floor-plane.tilted .room-3d:hover, .floor-plane.tilted .room-active { transform: translateZ(14px); }
+.room-3d .wall { position: absolute; background: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.04)); pointer-events: none; opacity: 0; transition: opacity .6s; }
+.floor-plane.tilted .room-3d .wall { opacity: 1; }
+.room-3d .wall-n { left: 0; right: 0; top: 0; height: 22px; transform-origin: top; transform: rotateX(-90deg); border-radius: 6px 6px 0 0; }
+.room-3d .wall-w { top: 0; bottom: 0; left: 0; width: 22px; transform-origin: left; transform: rotateY(90deg); border-radius: 6px 0 0 6px; }
+.room-active { outline: 2px solid rgba(143,166,255,.9); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .floor-plane { transition: none; } }

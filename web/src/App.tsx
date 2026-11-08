@@ -8,6 +8,8 @@ import { HubspacePanel } from './components/Hubspace';
 import { AnnouncementBanner, RoutineChips, TimersCard, WeatherCard } from './components/NovaWidgets';
 import { AlarmOverlay, SecurityPanel } from './components/Security';
 import { AutomationsPanel, DeviceManager } from './components/Manager';
+import { FloorPlan } from './components/FloorPlan';
+import { WallDisplay } from './components/WallDisplay';
 import { api, loadSession, saveSession, timeLeft, type Session } from './session';
 import { DeviceCard } from './components/DeviceCard';
 import { ActivityFeed, ClimateCard, EnergyCard, ScenesBar } from './components/Widgets';
@@ -43,6 +45,8 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
   const [aiEnabled, setAiEnabled] = useState(false);
   useEffect(() => { api<{ ai: boolean }>('/api/assistant/status', { token: session.token }).then((r) => setAiEnabled(r.ai)).catch(() => {}); }, [session.token]);
   const askNova = useCallback((t: string) => ask(t, lang), [ask, lang]);
+  const [wall, setWall] = useState(() => new URLSearchParams(location.search).has('wall'));
+  const exitWall = useCallback(() => { setWall(false); if (location.search.includes('wall')) history.replaceState(null, '', '/'); }, []);
   const user = session.user;
   const [lockPrompt, setLockPrompt] = useState<string | null>(() => new URLSearchParams(location.search).get('lock'));
   const [room, setRoom] = useState('all');
@@ -94,6 +98,8 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
             <div className="font-display text-2xl font-light tabular-nums">{now.toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' })}</div>
             <div className="text-[11px] text-white/45">{now.toLocaleDateString('en-CA', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
           </div>
+          <button onClick={() => setWall(true)} title="Wall display mode (for a tablet)" aria-label="Open wall display"
+                  className="glass hidden h-10 w-10 place-items-center rounded-full text-lg hover:bg-white/10 sm:grid">🖥️</button>
           <AccountMenu session={session} onSignOut={onSignOut} />
           </div>
         </header>
@@ -134,6 +140,7 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
 
         <div className="mt-8 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
           <main>
+            <div className="mb-5"><FloorPlan state={state} selected={room} onSelect={setRoom} /></div>
             <nav className="mb-4 flex gap-2 overflow-x-auto pb-1" aria-label="Rooms">
               {[{ id: 'all', name: 'All rooms', icon: '🏠' }, ...state.rooms].map((r) => (
                 <button key={r.id} onClick={() => setRoom(r.id)}
@@ -169,6 +176,7 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
       </div>
       <Toasts items={toasts} dismiss={dismiss} />
       <AnnouncementBanner a={announcement} dismiss={dismissAnnouncement} lang={lang} />
+      {wall && <WallDisplay state={state} name={user.name} ask={askNova} lang={lang} runScene={runScene} update={update} onExit={exitWall} />}
       <AlarmOverlay state={state} silence={security.silence} />
     </BeamsBackground>
   );
