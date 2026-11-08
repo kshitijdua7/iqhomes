@@ -11,9 +11,17 @@ export function Login({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(0);
 
+  const [demo, setDemo] = useState<{ demo: boolean; pins?: { owner: string; family: string } } | null>(null);
   useEffect(() => {
     api<PublicUser[]>('/api/profiles').then(setProfiles).catch(() => setError("Can't reach the house. Is the server running?"));
+    api<{ demo: boolean; pins?: { owner: string; family: string } }>('/api/demo').then(setDemo).catch(() => {});
   }, []);
+
+  async function demoLogin(p: PublicUser) {
+    const pin = p.role === 'owner' ? demo?.pins?.owner : demo?.pins?.family;
+    if (!pin) return;
+    try { onSignedIn(await api<Session>('/api/login', { body: { userId: p.id, pin } })); } catch (e) { setError(e instanceof Error ? e.message : 'Sign-in failed'); }
+  }
 
   // A guest link like /?guest=123456 skips straight to the code with it filled in.
   useEffect(() => {
@@ -66,6 +74,19 @@ export function Login({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         <h1 className="mt-6 font-display text-3xl font-semibold tracking-tight">IQHomes</h1>
         <p className="mt-1 text-sm text-white/55">{picked ? (picked === 'guest' ? 'Enter your 6-digit guest code' : `Hi ${picked.name}, enter your PIN`) : 'Who’s home?'}</p>
 
+        {!picked && demo?.demo && profiles && (
+          <div className="mt-6 rounded-2xl border border-aqua/30 bg-aqua/10 p-4 text-left">
+            <div className="text-sm font-semibold text-aqua">🧪 Public demo</div>
+            <p className="mt-1 text-xs text-white/60">Explore everything. The house resets every hour, so break whatever you like.</p>
+            <div className="mt-3 flex gap-2">
+              {profiles.map((p) => (
+                <button key={p.id} onClick={() => demoLogin(p)} className="flex-1 rounded-full bg-gradient-to-r from-nova to-nova-2 py-2 text-sm font-medium">
+                  {p.avatar} Enter as {p.role === 'owner' ? 'owner' : 'family'}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {!picked ? (
           <div className="mt-8 space-y-3">
             {profiles?.map((p) => (

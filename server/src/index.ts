@@ -13,6 +13,8 @@ import { askBrain, aiEnabled, remember } from './brain.js';
 import { getWeather, weatherSentence } from './weather.js';
 import { frenchToEnglish } from './french.js';
 import { Security } from './security.js';
+import { Storage } from './storage.js';
+import { MqttBridge } from './mqttBridge.js';
 import { TEMPLATES, describe as describeAutomation, dueByChange, dueByClock, dueBySecurity, validAutomation, type Automation } from './automations.js';
 import { Auth, DEFAULT_PINS, canControl, canManagePeople, canRunScenes, filterPatches, toPublic, type StoredUser } from './auth.js';
 import { Hardware, plugsFromEnv } from './hardware.js';
@@ -23,22 +25,20 @@ import type { Device, DevicePatch, HomeState, KasaIntegration, Lock } from './ty
 
 const PORT = Number(process.env.PORT ?? 4000);
 const DOOR_REMINDER_MIN = Number(process.env.DOOR_REMINDER_MIN ?? 10);
+/** Public demo: one-tap logins, account changes locked, and the whole house resets every hour. */
+const DEMO = /^(1|true|yes)$/i.test(process.env.DEMO_MODE ?? '');
+const DEMO_RESET_MIN = Number(process.env.DEMO_RESET_MIN ?? 60);
+let demoResetAt = Date.now() + DEMO_RESET_MIN * 60_000;
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR ?? join(here, '..', 'data');
 const WEB_DIST = join(here, '..', '..', 'web', 'dist');
 
-// ---- Persistence: small JSON files in server/data (git-ignored, so PINs, keys and tokens never reach GitHub) ----
-function load<T>(name: string): T | undefined {
-  try { const f = join(DATA_DIR, name); return existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : undefined; } catch { return undefined; }
-}
-const timers: Record<string, NodeJS.Timeout> = {};
-function persist(name: string, data: () => unknown) {
-  clearTimeout(timers[name]);
-  timers[name] = setTimeout(() => {
-    mkdirSync(DATA_DIR, { recursive: true });
-    writeFileSync(join(DATA_DIR, name), JSON.stringify(data(), null, 2));
-  }, 300);
-}
+// ---- Persistence: JSON files in server/data (git-ignored), or PostgreSQL when DATABASE_URL is set ----
+const storage = new Storage(DATA_DIR);
+await storage.init();
+const load = <T,>(name: string) => storage.load<T>(name);
+const persist = (name: string, data: () => unknown) => storage.save(name, data);
+let mqttBridge: MqttBridge | undefined; // created below; broadcast() may run before then
 
 const home = new Home(load('state.json'));
 const saveHome = () => persist('state.json', () => ({
@@ -84,6 +84,10 @@ const hardwareEvents = {
 };
 const kasa: KasaBridge = new KasaBridge(() => home.state.devices, load<KasaConfig>('kasa.json') ?? {},
   () => persist('kasa.json', () => kasa.config), hardwareEvents);
+mqttBridge = new MqttBridge(() => home.state.devices, (patch) => {
+  const changed = home.apply([patch], 'hardware', undefined);
+  if (changed.length) afterChange(changed, undefined);
+});
 const hubspace: HubspaceBridge = new HubspaceBridge(() => home.state.devices, load<HubspaceConfig>('hubspace.json') ?? {},
   () => persist('hubspace.json', () => hubspace.config), hardwareEvents);
 
@@ -101,6 +105,7 @@ function viewFor(user: StoredUser): HomeState {
 }
 
 function broadcast() {
+  mqttBridge?.publish();
   for (const s of io.sockets.sockets.values()) {
     const user = auth.userFor(s.data.token);
     if (!user) { s.emit('session:expired'); s.disconnect(true); continue; }
@@ -210,6 +215,13 @@ function requireOwner(req: Request, res: Response, next: NextFunction) {
 
 // ---- REST API ----
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/demo', (_req, res) => res.json(DEMO ? { demo: true, resetsAt: demoResetAt, pins: DEFAULT_PINS } : { demo: false }));
+/** In demo mode, nobody can change PINs, link real accounts or see hardware tokens. */
+const blockInDemo = (_req: Request, res: Response, next: NextFunction) => {
+  if (DEMO) { res.status(403).json({ error: 'Disabled in the public demo.' }); return; }
+  next();
+};
+app.use(['/api/me/pin', '/api/kasa/account', '/api/hubspace/account', '/api/hardware'], blockInDemo);
 app.get('/api/profiles', (_req, res) => res.json(auth.profiles()));
 
 app.post('/api/login', (req, res) => {
@@ -727,6 +739,27 @@ setInterval(() => {
 // ---- Energy history: save + refresh screens every minute ----
 setInterval(() => broadcast(), 60_000).unref();
 
+// ---- Demo mode: reset the whole house every hour ----
+if (DEMO) {
+  setInterval(() => {
+    if (Date.now() < demoResetAt) return;
+    demoResetAt = Date.now() + DEMO_RESET_MIN * 60_000;
+    const fresh = new Home();
+    home.state.devices = fresh.state.devices;
+    home.state.rooms = fresh.state.rooms;
+    home.state.activity = [];
+    home.state.timers = [];
+    home.state.routines = [];
+    home.state.automations = [];
+    home.state.security = fresh.state.security;
+    home.state.usage = [];
+    for (const g of auth.guests()) auth.removeGuest(g.id);
+    home.log('system', '🧪 Demo reset: the house is back to its starting state');
+    io.emit('announce', { text: 'The demo house was just reset. Have fun!', kind: 'info' });
+    broadcast();
+  }, 15_000).unref();
+}
+
 // ---- Automations and schedules: check the clock every 20 seconds ----
 setInterval(() => {
   const due = dueByClock(home.state.automations, home.state);
@@ -766,6 +799,7 @@ if (existsSync(WEB_DIST)) {
 
 http.listen(PORT, () => {
   console.log(`🏠 IQHomes server running on http://localhost:${PORT}`);
+  console.log(`💾 Storage: ${storage.kind}${DEMO ? ` · 🧪 DEMO MODE (resets every ${DEMO_RESET_MIN} min)` : ''}`);
   for (const line of hardware.summary(PORT)) console.log(line);
   if (firstRun) {
     console.log(`👑 First run: owner PIN is ${DEFAULT_PINS.owner}, family PIN is ${DEFAULT_PINS.family}. Change them in the app.`);

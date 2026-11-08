@@ -46,6 +46,8 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
   useEffect(() => { api<{ ai: boolean }>('/api/assistant/status', { token: session.token }).then((r) => setAiEnabled(r.ai)).catch(() => {}); }, [session.token]);
   const askNova = useCallback((t: string) => ask(t, lang), [ask, lang]);
   const [wall, setWall] = useState(() => new URLSearchParams(location.search).has('wall'));
+  const [demoResetAt, setDemoResetAt] = useState<number | null>(null);
+  useEffect(() => { api<{ demo: boolean; resetsAt?: number }>('/api/demo').then((d) => setDemoResetAt(d.demo ? d.resetsAt ?? null : null)).catch(() => {}); }, [state?.activity.length]);
   const exitWall = useCallback(() => { setWall(false); if (location.search.includes('wall')) history.replaceState(null, '', '/'); }, []);
   const user = session.user;
   const [lockPrompt, setLockPrompt] = useState<string | null>(() => new URLSearchParams(location.search).get('lock'));
@@ -113,6 +115,13 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
                       className="rounded-full bg-gradient-to-r from-nova to-nova-2 px-4 py-1.5 text-sm font-medium">Lock now</button>
             )}
             <button onClick={closeLockPrompt} className="rounded-full px-3 py-1.5 text-sm text-white/60 hover:bg-white/10">Dismiss</button>
+          </div>
+        )}
+
+        {demoResetAt && (
+          <div className="mt-6 flex flex-wrap items-center gap-2 rounded-2xl border border-aqua/25 bg-aqua/10 px-4 py-2.5 text-sm text-white/75">
+            🧪 <b className="text-aqua">Public demo</b> · try anything: voice, scenes, the security alarm, automations.
+            <span className="ml-auto text-xs text-white/50">Resets in {Math.max(1, Math.round((demoResetAt - now.getTime()) / 60000))} min</span>
           </div>
         )}
 
