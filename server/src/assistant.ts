@@ -108,7 +108,15 @@ function findAction(c: string): Action | undefined {
 
 const findRoom = (c: string) => ROOM_WORDS.find(([re]) => re.test(c))?.[1];
 const findType = (c: string) => TYPE_WORDS.find(([re]) => re.test(c))?.[1];
-const findDevice = (c: string) => DEVICE_ALIASES.find(([re]) => re.test(c))?.[1];
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Devices added from the app (real switches) are matched by their own name first, longest name wins. */
+const findDevice = (c: string, home: HomeState) => {
+  const named = home.devices
+    .filter((d) => d.integration && normalize(d.name).length > 1)
+    .sort((a, b) => b.name.length - a.name.length)
+    .find((d) => new RegExp(`\\b${escapeRe(normalize(d.name))}s?\\b`).test(c));
+  return named?.id ?? DEVICE_ALIASES.find(([re]) => re.test(c))?.[1];
+};
 const findColor = (c: string) =>
   Object.keys(COLORS).sort((a, b) => b.length - a.length).find((name) => new RegExp(`\\b${name}\\b`).test(c));
 function findNumber(c: string): number | undefined {
@@ -183,7 +191,7 @@ export function interpret(text: string, home: HomeState): AssistantResult {
     }
 
     const explicitRoom = findRoom(c);
-    const deviceId = findDevice(c);
+    const deviceId = findDevice(c, home);
     let type = findType(c);
     let action = findAction(c);
     const num = findNumber(c);

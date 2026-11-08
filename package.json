@@ -9,7 +9,8 @@
     "test": "npm test --prefix server",
     "build": "npm run build --prefix web",
     "start": "npm start --prefix server",
-    "fake-esp32": "npm run fake-esp32 --prefix server"
+    "fake-esp32": "npm run fake-esp32 --prefix server",
+    "fake-kasa": "npm run fake-kasa --prefix server"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

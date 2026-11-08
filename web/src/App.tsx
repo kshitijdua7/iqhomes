@@ -3,6 +3,7 @@ import { useHome } from './useHome';
 import { Assistant } from './components/Assistant';
 import { Login } from './components/Login';
 import { AccountMenu, HardwarePanel, PeoplePanel, Toasts } from './components/Access';
+import { KasaPanel } from './components/Kasa';
 import { api, loadSession, saveSession, timeLeft, type Session } from './session';
 import { DeviceCard } from './components/DeviceCard';
 import { ActivityFeed, ClimateCard, EnergyCard, ScenesBar } from './components/Widgets';
@@ -138,6 +139,7 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
 
           <aside className="space-y-6">
             {thermostat && <ClimateCard t={thermostat} outside={state.outsideTemp} update={update} />}
+            {user.role === 'owner' && <KasaPanel session={session} rooms={state.rooms} />}
             {user.role === 'owner' && <HardwarePanel session={session} devices={state.devices} />}
             {user.role === 'owner' && <PeoplePanel session={session} rooms={state.rooms} />}
             {user.role !== 'guest' && <EnergyCard state={state} />}

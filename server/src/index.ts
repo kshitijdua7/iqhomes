@@ -11,6 +11,7 @@ import { interpret } from './assistant.js';
 import { Auth, DEFAULT_PINS, canControl, canManagePeople, canRunScenes, filterPatches, toPublic, type StoredUser } from './auth.js';
 import { Hardware, plugsFromEnv } from './hardware.js';
 import { Push, type Alert } from './push.js';
+import { KasaBridge, type KasaConfig } from './kasaBridge.js';
 import type { Device, DevicePatch, HomeState, Lock } from './types.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -61,6 +62,16 @@ const hardware = new Hardware(() => home.state.devices, hwConfig.token, plugsFro
 });
 http.on('upgrade', (req, socket, head) => { hardware.handleUpgrade(req, socket, head); });
 
+const hardwareEvents = {
+  report(patch: DevicePatch, note: string) {
+    const changed = home.apply([patch], 'hardware', note);
+    if (changed.length) afterChange(changed, undefined);
+  },
+  status() { watchHardware(); broadcast(); },
+};
+const kasa: KasaBridge = new KasaBridge(() => home.state.devices, load<KasaConfig>('kasa.json') ?? {},
+  () => persist('kasa.json', () => kasa.config), hardwareEvents);
+
 /** What a particular person is allowed to see. Guests only see their rooms and their own activity. */
 function viewFor(user: StoredUser): HomeState {
   if (user.role !== 'guest') return home.state;
@@ -86,6 +97,7 @@ function broadcast() {
 /** Runs after any real change: push it to hardware, raise alerts, update every screen. */
 function afterChange(changed: Device[], by: StoredUser | undefined) {
   hardware.sync(changed);
+  kasa.sync(changed);
   for (const d of changed) if (d.type === 'lock') onLockChanged(d, by);
   broadcast();
 }
@@ -187,6 +199,65 @@ app.get('/api/hardware', requireUser, requireOwner, (_req, res) => res.json({
   token: hwConfig.token,
   devices: home.state.devices.filter((d) => d.hardware).map((d) => ({ id: d.id, name: d.name, ...d.hardware })),
 }));
+
+// ---- Kasa switches (owner only) ----
+const kasaError = (res: Response, e: unknown) => res.status(400).json({ error: e instanceof Error ? e.message : 'Something went wrong' });
+
+app.get('/api/kasa', requireUser, requireOwner, (_req, res) => res.json({
+  connected: kasa.connected,
+  email: kasa.config.email,
+  devices: home.state.devices.filter((d) => d.integration?.kind === 'kasa')
+    .map((d) => ({ id: d.id, name: d.name, room: d.room, host: d.integration!.host, model: d.integration!.model, online: !!d.hardware?.online })),
+}));
+
+app.post('/api/kasa/account', requireUser, requireOwner, (req, res) => {
+  const email = String(req.body?.email ?? '').trim(), password = String(req.body?.password ?? '');
+  if (!email || !password) { res.status(400).json({ error: 'Enter the email and password you use in the Kasa app.' }); return; }
+  kasa.setAccount(email, password);
+  res.json({ ok: true });
+});
+app.delete('/api/kasa/account', requireUser, requireOwner, (_req, res) => { kasa.clearAccount(); res.json({ ok: true }); });
+
+app.post('/api/kasa/scan', requireUser, requireOwner, async (_req, res) => {
+  try { res.json(await kasa.scan()); } catch (e) { kasaError(res, e); }
+});
+
+app.post('/api/kasa/probe', requireUser, requireOwner, async (req, res) => {
+  const host = String(req.body?.host ?? '').trim();
+  if (!/^[\w.-]+(:\d+)?$/.test(host)) { res.status(400).json({ error: 'That doesn’t look like an IP address.' }); return; }
+  try { res.json(await kasa.probe(host)); } catch (e) { kasaError(res, e); }
+});
+
+app.post('/api/kasa/devices', requireUser, requireOwner, async (req, res) => {
+  const { host, name, room, kind } = req.body ?? {};
+  if (!home.state.rooms.some((r) => r.id === room)) { res.status(400).json({ error: 'Pick a room.' }); return; }
+  try {
+    const info = await kasa.probe(String(host));
+    const device = kasa.createDevice(info, String(name ?? ''), String(room), kind === 'plug' ? 'plug' : 'light');
+    if (home.device(device.id)) { res.status(409).json({ error: `That switch is already added as "${home.device(device.id)!.name}".` }); return; }
+    home.addDevice(device);
+    watchHardware();
+    broadcast();
+    res.json({ ok: true, device: { id: device.id, name: device.name } });
+  } catch (e) { kasaError(res, e); }
+});
+
+app.patch('/api/kasa/devices/:id', requireUser, requireOwner, (req, res) => {
+  const d = home.device(String(req.params.id));
+  if (!d?.integration) { res.status(404).json({ error: 'No such switch.' }); return; }
+  if (typeof req.body?.name === 'string' && req.body.name.trim()) d.name = req.body.name.trim().slice(0, 32);
+  if (home.state.rooms.some((r) => r.id === req.body?.room)) d.room = req.body.room;
+  broadcast();
+  res.json({ ok: true });
+});
+
+app.delete('/api/kasa/devices/:id', requireUser, requireOwner, (req, res) => {
+  const d = home.removeDevice(String(req.params.id));
+  if (!d) { res.status(404).json({ error: 'No such switch.' }); return; }
+  kasa.forget(d.id);
+  broadcast();
+  res.json({ ok: true });
+});
 
 app.get('/api/push/key', (_req, res) => res.json({ key: push.publicKey }));
 app.post('/api/push/subscribe', requireUser, (req, res) => {

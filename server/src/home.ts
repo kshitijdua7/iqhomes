@@ -89,6 +89,22 @@ export class Home {
 
   device(id: string) { return this.state.devices.find((d) => d.id === id); }
 
+  /** Adds a device linked from the app (e.g. a Kasa switch). */
+  addDevice(d: Device) {
+    this.state.devices.push(d);
+    this.recalcPower();
+    this.log('system', `➕ ${d.name} added to ${this.state.rooms.find((r) => r.id === d.room)?.name ?? d.room}`);
+  }
+
+  /** Removes a device that was added from the app. Built-in demo devices can't be removed. */
+  removeDevice(id: string): Device | undefined {
+    const d = this.device(id);
+    if (!d?.integration) return undefined;
+    this.state.devices = this.state.devices.filter((x) => x.id !== id);
+    this.log('system', `➖ ${d.name} removed`);
+    return d;
+  }
+
   log(source: ActivityEntry['source'], text: string, by?: string) {
     this.state.activity.unshift({ id: newId(), time: Date.now(), source, text, ...(by ? { by } : {}) });
     this.state.activity.length = Math.min(this.state.activity.length, 60);

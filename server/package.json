@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "test": "vitest run",
-    "fake-esp32": "tsx scripts/fake-esp32.ts"
+    "fake-esp32": "tsx scripts/fake-esp32.ts",
+    "fake-kasa": "tsx scripts/fake-kasa.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

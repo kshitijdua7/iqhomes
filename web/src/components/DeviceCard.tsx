@@ -20,7 +20,7 @@ function isActive(d: Device) {
 
 function status(d: Device) {
   switch (d.type) {
-    case 'light': return d.on ? `${d.brightness}%` : 'Off';
+    case 'light': return d.on ? (d.dimmable === false ? 'On' : `${d.brightness}%`) : 'Off';
     case 'blinds': return d.position === 0 ? 'Closed' : d.position === 100 ? 'Open' : `${d.position}% open`;
     case 'lock': return d.locked ? 'Locked' : 'Unlocked';
     case 'fan': return d.on ? `Speed ${d.speed}` : 'Off';
@@ -78,7 +78,7 @@ export function DeviceCard({ device: d, update, roomName }: { device: Device; up
       {d.hardware?.online && d.hardware.telemetry && <div className="relative mt-3"><Telemetry t={d.hardware.telemetry} /></div>}
 
       <div className="relative mt-4 space-y-3">
-        {d.type === 'light' && (
+        {d.type === 'light' && d.dimmable !== false && (
           <>
             <input type="range" min={1} max={100} value={d.brightness} aria-label="Brightness" className="w-full"
                    onChange={(e) => update(d.id, { brightness: Number(e.target.value), on: true })} />

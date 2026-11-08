@@ -11,17 +11,31 @@ export interface BaseDevice {
   watts: number; // current power draw, recalculated by the simulator
   /** Set when this device is backed by a real physical device (ESP32 or smart plug). */
   hardware?: HardwareInfo;
+  /** Saved link to a real smart-home device added from the app (e.g. a Kasa switch). */
+  integration?: Integration;
+}
+
+export interface Integration {
+  kind: 'kasa';
+  host: string;            // IP (and port, if not the default) on the local network
+  protocol: 'klap-smart' | 'klap-iot' | 'legacy';
+  mac?: string;
+  model?: string;
 }
 
 export interface HardwareInfo {
-  kind: 'esp32' | 'shelly' | 'tasmota';
+  kind: 'esp32' | 'shelly' | 'tasmota' | 'kasa';
   online: boolean;
   lastSeen?: number;
   /** Extra live readings the board reports, e.g. its own temperature or signal strength. */
   telemetry?: Record<string, number>;
 }
 
-export interface Light extends BaseDevice { type: 'light'; on: boolean; brightness: number; color: string }
+export interface Light extends BaseDevice {
+  type: 'light'; on: boolean; brightness: number; color: string;
+  /** false for plain on/off wall switches (no brightness or colour) */
+  dimmable?: boolean;
+}
 export interface Blinds extends BaseDevice { type: 'blinds'; position: number } // 0 = closed, 100 = open
 export interface Thermostat extends BaseDevice {
   type: 'thermostat'; target: number; current: number; mode: 'heat' | 'cool' | 'auto' | 'off';

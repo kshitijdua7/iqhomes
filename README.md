@@ -19,6 +19,7 @@ Built by **Kshitij Dua** · React · TypeScript · Node.js · Socket.io · Tailw
 | 🌡️ **Climate simulation** | The indoor temperature drifts toward the thermostat target over time, like a real house. |
 | 🔌 **Live energy monitor** | Watts, cost per hour and per month (Ontario rate), the biggest power users, and a live chart. |
 | 🔌 **Real hardware** | An **ESP32** or a **Shelly/Tasmota smart plug** becomes a dashboard device. Voice and app control the real thing, its physical button updates every screen, and real watts flow into the energy monitor. |
+| 🔘 **Smart switches (TP-Link Kasa)** | Add your real Kasa wall switches and plugs from the app. IQHomes finds them on your Wi-Fi, you name them, and Nova controls them immediately (*"Hey Nova, turn on my room light"*). Encrypted local control (KLAP), with no cloud round trip. 🚧 *New and in active testing.* |
 | 👥 **Roles & guest passes** | Owner, family and guest accounts with PIN sign-in. The owner issues **time-limited guest passes** for chosen rooms, which expire or can be revoked instantly. Enforced on the server, including voice commands. |
 | 📲 **Installable app + push** | A PWA you can add to your home screen, with push alerts like *"Front door unlocked by Alex"*, a reminder if the door is **still unlocked after 10 minutes** (with a one-tap **Lock it** action), and alerts when hardware goes offline. |
 | 📜 **Activity log** | Every change is recorded with who made it and how: app, voice, scene, hardware or system. |
@@ -76,6 +77,26 @@ PLUG_DEVICE=kitchen-coffee                 # which dashboard device it becomes (
 ```
 The plug reports its **real power draw** to the energy monitor, and pressing its button syncs back within a few seconds.
 
+## 🔘 Smart switches: TP-Link Kasa (🚧 in progress)
+
+Control a real Kasa switch, like the **KS205** Matter wall switch, with Nova, the way you would with Alexa.
+
+**You need:** the switch already set up in the **Kasa app** and on the same Wi-Fi as the computer running IQHomes, plus your **TP-Link / Kasa account email and password**.
+
+1. Sign in as the owner, then go to **Smart switches → Connect Kasa** and enter your Kasa login.
+   Newer Kasa firmware uses it to encrypt the local connection. Only a one-way hash is saved (in git-ignored `server/data/kasa.json`), never the password.
+2. IQHomes scans your Wi-Fi. Tap your switch. If it isn't found, type its IP address from *Kasa app → the switch → ⚙️ → Device info*.
+3. Give it a name and a room, and choose whether it controls a light.
+4. Say *"Hey Nova, turn on the room light"*. Room commands like *"turn off the bedroom lights"* include it too.
+
+Flip the switch by hand or in the Kasa app and every IQHomes screen updates within about 3 seconds. If the router gives the switch a new IP, IQHomes finds it again by its MAC address.
+
+**How it works:** IQHomes speaks Kasa's local protocols directly: **KLAP** (encrypted, port 80, used by newer devices like the KS205) and the older **XOR protocol** (port 9999) for older Kasa plugs. It tries each one automatically. Protocol details come from the open-source [python-kasa](https://github.com/python-kasa/python-kasa) project.
+
+**No switch handy?** `npm run fake-kasa` starts a pretend KS205 that speaks the same encrypted protocol (login `demo@iqhomes.dev` / `demo1234`). Add it by IP `127.0.0.1:8080`, and press ENTER to flip it "by hand".
+
+> **Status:** fully working against the simulated KS205 (discovery, encryption, control, hand-flip sync, tests). Testing on a physical KS205 is in progress. If your switch doesn't connect, check the server log and open an issue.
+
 ## 📲 Install & notifications
 
 Open the dashboard and choose **Install IQHomes app** from the account menu. On iPhone, tap Share, then *Add to Home Screen*. Then turn on notifications from the same menu.
@@ -91,5 +112,6 @@ Settings: `DOOR_REMINDER_MIN` (default 10) controls the "still unlocked" reminde
                                    ├── Node server ──┤
  voice "Hey Nova…"  ──────────────┘   auth · rules   └── Shelly / Tasmota plug (local HTTP)
                                       push alerts ──▶ Web Push to every subscribed device
+                                      Kasa bridge ──▶ KS205 & other Kasa switches (KLAP, local Wi-Fi)
 ```
 

@@ -97,3 +97,6 @@ input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; border-radius
 @media (prefers-reduced-motion: reduce) {
   .shake, .toast-in, .fade-in { animation: none; }
 }
+
+/* switch scan progress bar */
+@keyframes scan { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
