@@ -15,7 +15,9 @@ export interface BaseDevice {
   integration?: Integration;
 }
 
-export interface Integration {
+export type Integration = KasaIntegration | HubspaceIntegration;
+
+export interface KasaIntegration {
   kind: 'kasa';
   host: string;            // IP (and port, if not the default) on the local network
   protocol: 'klap-smart' | 'klap-iot' | 'legacy';
@@ -23,8 +25,15 @@ export interface Integration {
   model?: string;
 }
 
+export interface HubspaceIntegration {
+  kind: 'hubspace';
+  deviceId: string;        // Hubspace/Afero metadevice id
+  powerInstance?: string | null;
+  model?: string;
+}
+
 export interface HardwareInfo {
-  kind: 'esp32' | 'shelly' | 'tasmota' | 'kasa';
+  kind: 'esp32' | 'shelly' | 'tasmota' | 'kasa' | 'hubspace';
   online: boolean;
   lastSeen?: number;
   /** Extra live readings the board reports, e.g. its own temperature or signal strength. */

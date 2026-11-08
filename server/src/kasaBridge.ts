@@ -3,6 +3,8 @@ import { authHashes, discover, KasaAuthError, KasaDevice, probe, type Discovered
 import type { HardwareEvents } from './hardware.js';
 import type { Device, Light, Plug } from './types.js';
 
+const kasaOf = (d: Device) => (d.integration?.kind === 'kasa' ? d.integration : undefined);
+
 /** Saved Kasa account (hashes only) – lives in server/data/kasa.json, which is git-ignored. */
 export interface KasaConfig { email?: string; hashes?: { v1: string; v2: string } }
 
@@ -97,7 +99,7 @@ export class KasaBridge {
   }
 
   private client(d: Device) {
-    const integ = d.integration!;
+    const integ = kasaOf(d)!;
     let c = this.clients.get(d.id);
     if (!c || c.host !== integ.host) {
       c = new KasaDevice(integ.host, integ.protocol, this.hashList());
@@ -128,10 +130,11 @@ export class KasaBridge {
 
   /** If a switch went quiet, look for it on the network by MAC address and update its IP. */
   private async relocate(d: Device) {
-    if (!d.integration?.mac) return;
-    const hit = (await discover()).find((f) => sameMac(f.mac, d.integration!.mac));
-    if (hit && hit.host !== d.integration.host) {
-      d.integration.host = hit.host;
+    const integ = kasaOf(d);
+    if (!integ?.mac) return;
+    const hit = (await discover()).find((f) => sameMac(f.mac, integ.mac));
+    if (hit && hit.host !== integ.host) {
+      integ.host = hit.host;
       this.clients.delete(d.id);
       this.events.status();
     }
@@ -142,4 +145,4 @@ export class KasaBridge {
 }
 
 const sameMac = (a?: string, b?: string) => !!a && !!b && a.replace(/[^a-f0-9]/gi, '').toLowerCase() === b.replace(/[^a-f0-9]/gi, '').toLowerCase();
-const sameDevice = (d: Device, f: Discovered) => sameMac(d.integration?.mac, f.mac) || d.integration?.host === f.host;
+const sameDevice = (d: Device, f: Discovered) => sameMac(kasaOf(d)?.mac, f.mac) || kasaOf(d)?.host === f.host;

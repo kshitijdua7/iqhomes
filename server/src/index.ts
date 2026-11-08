@@ -12,7 +12,8 @@ import { Auth, DEFAULT_PINS, canControl, canManagePeople, canRunScenes, filterPa
 import { Hardware, plugsFromEnv } from './hardware.js';
 import { Push, type Alert } from './push.js';
 import { KasaBridge, type KasaConfig } from './kasaBridge.js';
-import type { Device, DevicePatch, HomeState, Lock } from './types.js';
+import { HubspaceBridge, type HubspaceConfig } from './hubspaceBridge.js';
+import type { Device, DevicePatch, HomeState, KasaIntegration, Lock } from './types.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const DOOR_REMINDER_MIN = Number(process.env.DOOR_REMINDER_MIN ?? 10);
@@ -71,6 +72,8 @@ const hardwareEvents = {
 };
 const kasa: KasaBridge = new KasaBridge(() => home.state.devices, load<KasaConfig>('kasa.json') ?? {},
   () => persist('kasa.json', () => kasa.config), hardwareEvents);
+const hubspace: HubspaceBridge = new HubspaceBridge(() => home.state.devices, load<HubspaceConfig>('hubspace.json') ?? {},
+  () => persist('hubspace.json', () => hubspace.config), hardwareEvents);
 
 /** What a particular person is allowed to see. Guests only see their rooms and their own activity. */
 function viewFor(user: StoredUser): HomeState {
@@ -98,6 +101,7 @@ function broadcast() {
 function afterChange(changed: Device[], by: StoredUser | undefined) {
   hardware.sync(changed);
   kasa.sync(changed);
+  hubspace.sync(changed);
   for (const d of changed) if (d.type === 'lock') onLockChanged(d, by);
   broadcast();
 }
@@ -207,7 +211,7 @@ app.get('/api/kasa', requireUser, requireOwner, (_req, res) => res.json({
   connected: kasa.connected,
   email: kasa.config.email,
   devices: home.state.devices.filter((d) => d.integration?.kind === 'kasa')
-    .map((d) => ({ id: d.id, name: d.name, room: d.room, host: d.integration!.host, model: d.integration!.model, online: !!d.hardware?.online })),
+    .map((d) => { const i = d.integration as KasaIntegration; return { id: d.id, name: d.name, room: d.room, host: i.host, model: i.model, online: !!d.hardware?.online }; }),
 }));
 
 app.post('/api/kasa/account', requireUser, requireOwner, (req, res) => {
@@ -255,6 +259,47 @@ app.delete('/api/kasa/devices/:id', requireUser, requireOwner, (req, res) => {
   const d = home.removeDevice(String(req.params.id));
   if (!d) { res.status(404).json({ error: 'No such switch.' }); return; }
   kasa.forget(d.id);
+  broadcast();
+  res.json({ ok: true });
+});
+
+// ---- Hubspace (owner only) ----
+app.get('/api/hubspace', requireUser, requireOwner, (_req, res) => res.json({
+  connected: hubspace.connected,
+  expired: !!hubspace.config.expired,
+  email: hubspace.config.email,
+  devices: home.state.devices.filter((d) => d.integration?.kind === 'hubspace')
+    .map((d) => ({ id: d.id, name: d.name, room: d.room, model: d.integration?.model, online: !!d.hardware?.online })),
+}));
+
+app.post('/api/hubspace/account', requireUser, requireOwner, async (req, res) => {
+  const email = String(req.body?.email ?? '').trim(), password = String(req.body?.password ?? '');
+  if (!email || !password) { res.status(400).json({ error: 'Enter the email and password you use in the Hubspace app.' }); return; }
+  try { await hubspace.signIn(email, password); res.json({ ok: true }); }
+  catch (e) { console.error('Hubspace sign-in failed:', e); kasaError(res, e); }
+});
+app.delete('/api/hubspace/account', requireUser, requireOwner, (_req, res) => { hubspace.signOut(); res.json({ ok: true }); });
+
+app.get('/api/hubspace/available', requireUser, requireOwner, async (_req, res) => {
+  try { res.json(await hubspace.list()); } catch (e) { console.error('Hubspace list failed:', e); kasaError(res, e); }
+});
+
+app.post('/api/hubspace/devices', requireUser, requireOwner, async (req, res) => {
+  const { hubId, name, room, kind } = req.body ?? {};
+  if (!home.state.rooms.some((r) => r.id === room)) { res.status(400).json({ error: 'Pick a room.' }); return; }
+  try {
+    const device = await hubspace.createDevice(String(hubId), String(name ?? ''), String(room), kind === 'plug' ? 'plug' : 'light');
+    if (home.device(device.id)) { res.status(409).json({ error: `Already added as "${home.device(device.id)!.name}".` }); return; }
+    home.addDevice(device);
+    watchHardware();
+    broadcast();
+    res.json({ ok: true, device: { id: device.id, name: device.name } });
+  } catch (e) { kasaError(res, e); }
+});
+
+app.delete('/api/hubspace/devices/:id', requireUser, requireOwner, (req, res) => {
+  const d = home.removeDevice(String(req.params.id));
+  if (!d) { res.status(404).json({ error: 'No such device.' }); return; }
   broadcast();
   res.json({ ok: true });
 });

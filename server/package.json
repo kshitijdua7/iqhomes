@@ -8,7 +8,8 @@
     "start": "tsx src/index.ts",
     "test": "vitest run",
     "fake-esp32": "tsx scripts/fake-esp32.ts",
-    "fake-kasa": "tsx scripts/fake-kasa.ts"
+    "fake-kasa": "tsx scripts/fake-kasa.ts",
+    "fake-hubspace": "tsx scripts/fake-hubspace.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

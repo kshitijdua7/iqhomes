@@ -10,7 +10,8 @@
     "build": "npm run build --prefix web",
     "start": "npm start --prefix server",
     "fake-esp32": "npm run fake-esp32 --prefix server",
-    "fake-kasa": "npm run fake-kasa --prefix server"
+    "fake-kasa": "npm run fake-kasa --prefix server",
+    "fake-hubspace": "npm run fake-hubspace --prefix server"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
