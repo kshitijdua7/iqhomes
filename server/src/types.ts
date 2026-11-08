@@ -9,6 +9,16 @@ export interface BaseDevice {
   room: string;
   type: DeviceType;
   watts: number; // current power draw, recalculated by the simulator
+  /** Set when this device is backed by a real physical device (ESP32 or smart plug). */
+  hardware?: HardwareInfo;
+}
+
+export interface HardwareInfo {
+  kind: 'esp32' | 'shelly' | 'tasmota';
+  online: boolean;
+  lastSeen?: number;
+  /** Extra live readings the board reports, e.g. its own temperature or signal strength. */
+  telemetry?: Record<string, number>;
 }
 
 export interface Light extends BaseDevice { type: 'light'; on: boolean; brightness: number; color: string }
@@ -27,7 +37,21 @@ export interface Room { id: string; name: string; icon: string }
 
 export interface Scene { id: string; name: string; icon: string; description: string }
 
-export interface ActivityEntry { id: string; time: number; source: 'app' | 'voice' | 'scene' | 'system'; text: string }
+export type ActivitySource = 'app' | 'voice' | 'scene' | 'system' | 'hardware';
+export interface ActivityEntry { id: string; time: number; source: ActivitySource; text: string; by?: string }
+
+// ---- People & permissions ----
+export type Role = 'owner' | 'family' | 'guest';
+
+export interface PublicUser {
+  id: string;
+  name: string;
+  role: Role;
+  avatar: string;
+  /** Guests only: the rooms they may control, and when their pass stops working. */
+  rooms?: string[];
+  expiresAt?: number;
+}
 
 export interface HomeState {
   rooms: Room[];
