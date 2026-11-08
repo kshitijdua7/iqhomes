@@ -40,3 +40,37 @@ describe('Nova and added switches', () => {
     expect(r.patches.map((p) => p.id)).toContain('kasa-1');
   });
 });
+
+describe('Nova and the garage', () => {
+  const withGarage = (open = false) => {
+    const home = new Home();
+    home.addDevice({ id: 'garage-1', name: 'Garage Door', room: 'entrance', type: 'garage', open, watts: 0,
+      integration: { kind: 'meross', uuid: 'u1', channel: 0 } });
+    return home.state;
+  };
+
+  it('opens and closes the garage', () => {
+    expect(interpret('hey nova open the garage', withGarage()).patches).toEqual([{ id: 'garage-1', changes: { open: true } }]);
+    expect(interpret('close the garage door', withGarage(true)).patches).toEqual([{ id: 'garage-1', changes: { open: false } }]);
+  });
+
+  it('never confuses the garage door with the front door', () => {
+    const r = interpret('close the garage door', withGarage(true));
+    expect(r.patches.map((p) => p.id)).not.toContain('front-door');
+    expect(interpret('lock the front door', withGarage()).patches).toEqual([{ id: 'front-door', changes: { locked: true } }]);
+  });
+
+  it('answers "is the garage open?" without moving it', () => {
+    const r = interpret('is the garage open?', withGarage(true));
+    expect(r.patches).toEqual([]);
+    expect(r.reply).toMatch(/garage door is open/);
+  });
+
+  it('good night closes the garage', () => {
+    const home = new Home();
+    home.addDevice({ id: 'garage-1', name: 'Garage Door', room: 'entrance', type: 'garage', open: true, watts: 0,
+      integration: { kind: 'meross', uuid: 'u1', channel: 0 } });
+    home.runScene('night');
+    expect((home.device('garage-1') as { open: boolean }).open).toBe(false);
+  });
+});

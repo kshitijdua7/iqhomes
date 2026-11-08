@@ -318,7 +318,7 @@ app.post('/api/push/test', requireUser, async (req, res) => {
 
 // ---- Voice / text assistant, with permissions ----
 /** Topics a guest can't even ask about, because their pass hides those devices. */
-const GUEST_PRIVATE = /\b(lock|locked|unlock|door|doors|thermostat|temperature|heat|heating|cool|cooling|degrees?|cold|warm|hot|energy|power|watts?|bill)\b/;
+const GUEST_PRIVATE = /\b(garage|lock|locked|unlock|door|doors|thermostat|temperature|heat|heating|cool|cooling|degrees?|cold|warm|hot|energy|power|watts?|bill)\b/;
 
 function ask(user: StoredUser, text: string) {
   if (user.role !== 'guest') {

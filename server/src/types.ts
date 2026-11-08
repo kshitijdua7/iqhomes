@@ -1,7 +1,7 @@
 // Shared data shapes for the whole smart home.
 // The web app keeps a copy of these in web/src/types.ts.
 
-export type DeviceType = 'light' | 'blinds' | 'thermostat' | 'lock' | 'fan' | 'plug' | 'tv';
+export type DeviceType = 'light' | 'blinds' | 'thermostat' | 'lock' | 'fan' | 'plug' | 'tv' | 'garage';
 
 export interface BaseDevice {
   id: string;
@@ -15,13 +15,21 @@ export interface BaseDevice {
   integration?: Integration;
 }
 
-export type Integration = KasaIntegration | HubspaceIntegration;
+export type Integration = KasaIntegration | HubspaceIntegration | MerossIntegration;
 
 export interface KasaIntegration {
   kind: 'kasa';
   host: string;            // IP (and port, if not the default) on the local network
   protocol: 'klap-smart' | 'klap-iot' | 'legacy';
   mac?: string;
+  model?: string;
+}
+
+export interface MerossIntegration {
+  kind: 'meross';
+  uuid: string;            // Meross device id
+  host?: string;           // local IP, found automatically
+  channel: number;         // which door on the opener (MSG100 = 0)
   model?: string;
 }
 
@@ -33,7 +41,7 @@ export interface HubspaceIntegration {
 }
 
 export interface HardwareInfo {
-  kind: 'esp32' | 'shelly' | 'tasmota' | 'kasa' | 'hubspace';
+  kind: 'esp32' | 'shelly' | 'tasmota' | 'kasa' | 'hubspace' | 'meross';
   online: boolean;
   lastSeen?: number;
   /** Extra live readings the board reports, e.g. its own temperature or signal strength. */
@@ -54,7 +62,14 @@ export interface Fan extends BaseDevice { type: 'fan'; on: boolean; speed: numbe
 export interface Plug extends BaseDevice { type: 'plug'; on: boolean }
 export interface Tv extends BaseDevice { type: 'tv'; on: boolean; volume: number }
 
-export type Device = Light | Blinds | Thermostat | Lock | Fan | Plug | Tv;
+export interface Garage extends BaseDevice {
+  type: 'garage';
+  open: boolean;
+  /** Set for ~20s after a command while the door travels, cleared when the sensor confirms. */
+  moving?: 'opening' | 'closing';
+}
+
+export type Device = Light | Blinds | Thermostat | Lock | Fan | Plug | Tv | Garage;
 
 export interface Room { id: string; name: string; icon: string }
 

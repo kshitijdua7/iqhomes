@@ -29,6 +29,7 @@ const ROOM_WORDS: [RegExp, string][] = [
 ];
 
 const TYPE_WORDS: [RegExp, DeviceType][] = [
+  [/\bgarage( doors?)?\b/, 'garage'], // before locks, so "garage door" isn't the front door
   [/\b(lights?|lamps?|lighting|bulbs?)\b/, 'light'],
   [/\b(blinds?|shades?|curtains?|shutters?|windows?)\b/, 'blinds'],
   [/\b(thermostat|temperature|heat(ing)?|ac|air ?con(ditioning)?|degrees)\b/, 'thermostat'],
@@ -48,7 +49,7 @@ const DEVICE_ALIASES: [RegExp, string][] = [
   [/\b(monitors?|computer)\b/, 'office-plug'],
   [/\b(ceiling )?fan\b/, 'bedroom-fan'],
   [/\b(tv|television|telly)\b/, 'living-tv'],
-  [/\b(front )?door\b/, 'front-door'],
+  [/\b(?<!garage )(front )?door\b/, 'front-door'],
 ];
 
 const SCENE_WORDS: [RegExp, string][] = [
@@ -132,6 +133,11 @@ function answerQuestion(c: string, home: HomeState): string | undefined {
   const lights = home.devices.filter((d) => d.type === 'light');
   if (/\b(what'?s|what is|how)\b.*\b(temperature|warm|cold|hot)\b/.test(c) && t?.type === 'thermostat')
     return `It's ${t.current}° inside, heading to ${t.target}°. Outside it's about ${home.outsideTemp}°.`;
+  if (/\bgarage\b/.test(c) && /\b(is|are|did|was)\b/.test(c)) {
+    const gs = home.devices.filter((d) => d.type === 'garage');
+    if (!gs.length) return "You don't have a garage door connected yet.";
+    return gs.map((d) => d.type === 'garage' && `The ${d.name.toLowerCase()} is ${d.moving ?? (d.open ? 'open' : 'closed')}.`).join(' ');
+  }
   if (/\b(is|are)\b.*\b(door|locked|lock)\b/.test(c)) {
     const locks = home.devices.filter((d) => d.type === 'lock');
     const open = locks.filter((d) => d.type === 'lock' && !d.locked);
@@ -172,6 +178,8 @@ export function interpret(text: string, home: HomeState): AssistantResult {
 
   const question = answerQuestion(clean, home);
   if (question && !findAction(clean.replace(/\bon\b/g, ''))) return { understood: true, reply: question, patches: [], scenes: [] };
+  // "is the garage open?" contains "open" but is a question. Never let it move the door.
+  if (question && /\bgarage\b/.test(clean) && /^(is|are|did|was|has)\b/.test(clean)) return { understood: true, reply: question, patches: [], scenes: [] };
 
   const clauses = clean.split(/\s*(?:,|\band then\b|\bthen\b|\band\b|\balso\b)\s*/).filter(Boolean);
   const patches: DevicePatch[] = [];
@@ -211,7 +219,7 @@ export function interpret(text: string, home: HomeState): AssistantResult {
       else if (['on', 'off', 'toggle', 'set'].includes(action) && !everything) type = lastType ?? 'light';
     }
     // "everything" / "all lights" apply house-wide; otherwise inherit the room from the previous clause
-    const room = allLights || everything || type === 'thermostat' || type === 'lock' ? explicitRoom : explicitRoom ?? lastRoom;
+    const room = allLights || everything || type === 'thermostat' || type === 'lock' || type === 'garage' ? explicitRoom : explicitRoom ?? lastRoom;
     if (allLights) type = 'light';
 
     const targets = pickTargets(home, room, type, deviceId, everything && !allLights);
@@ -221,7 +229,7 @@ export function interpret(text: string, home: HomeState): AssistantResult {
     }
 
     const add = (d: Device, changes: Record<string, unknown>) => patches.push({ id: d.id, changes });
-    const label = deviceId ? targets[0].name.toLowerCase() : `${type === 'light' ? 'lights' : type === 'blinds' ? 'blinds' : type ?? 'devices'}${where(home, room)}`;
+    const label = deviceId ? targets[0].name.toLowerCase() : type === 'garage' ? (targets.length === 1 ? targets[0].name.toLowerCase() : 'garage doors') : `${type === 'light' ? 'lights' : type === 'blinds' ? 'blinds' : type ?? 'devices'}${where(home, room)}`;
 
     switch (action) {
       case 'on': {
@@ -248,11 +256,19 @@ export function interpret(text: string, home: HomeState): AssistantResult {
         replies.push(`Made the ${label} ${name}`); break;
       }
       case 'open': {
+        if (targets.some((d) => d.type === 'garage')) {
+          targets.filter((d) => d.type === 'garage').forEach((d) => add(d, { open: true }));
+          replies.push(`Opening the ${label}`); break;
+        }
         const pos = num ?? 100;
         targets.forEach((d) => add(d, { position: pos }));
         replies.push(pos === 100 ? `Opened the ${label}` : `Opened the ${label} to ${pos}%`); break;
       }
       case 'close': {
+        if (targets.some((d) => d.type === 'garage')) {
+          targets.filter((d) => d.type === 'garage').forEach((d) => add(d, { open: false }));
+          replies.push(`Closing the ${label}`); break;
+        }
         const pos = /half/.test(c) ? 50 : num !== undefined ? 100 - num : 0;
         targets.forEach((d) => add(d, { position: pos }));
         replies.push(pos === 0 ? `Closed the ${label}` : `Closed the ${label} to ${pos}% open`); break;

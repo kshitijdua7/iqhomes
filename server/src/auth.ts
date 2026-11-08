@@ -24,7 +24,7 @@ export interface AuthData {
 }
 
 /** Device types a guest may never touch, wherever they are. */
-const GUEST_BLOCKED_TYPES = new Set<Device['type']>(['lock', 'thermostat']);
+const GUEST_BLOCKED_TYPES = new Set<Device['type']>(['lock', 'thermostat', 'garage']);
 
 const hash = (pin: string, salt: string) => scryptSync(pin, salt, 32).toString('hex');
 

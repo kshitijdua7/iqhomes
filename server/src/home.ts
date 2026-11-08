@@ -13,8 +13,8 @@ export const ROOMS: Room[] = [
 export const SCENES: Scene[] = [
   { id: 'movie', name: 'Movie Night', icon: '🎬', description: 'Dim lights, close blinds, TV on' },
   { id: 'morning', name: 'Good Morning', icon: '🌅', description: 'Open blinds, warm lights, 21°' },
-  { id: 'night', name: 'Good Night', icon: '🌙', description: 'Everything off, doors locked, 18°' },
-  { id: 'away', name: 'Away', icon: '🧳', description: 'Lights off, locked, eco heating' },
+  { id: 'night', name: 'Good Night', icon: '🌙', description: 'Everything off, doors locked, garage closed, 18°' },
+  { id: 'away', name: 'Away', icon: '🧳', description: 'Lights off, locked, garage closed, eco heating' },
   { id: 'focus', name: 'Focus', icon: '🎯', description: 'Bright cool light in the office' },
 ];
 
@@ -52,6 +52,7 @@ export function powerOf(d: Device): number {
     }
     case 'blinds': return 0.5;
     case 'lock': return 0.1;
+    case 'garage': return 2;
   }
 }
 
@@ -62,6 +63,7 @@ const newId = () => `${Date.now().toString(36)}-${(idCounter++).toString(36)}`;
 const SANITIZERS: Record<string, (v: unknown) => unknown> = {
   on: (v) => Boolean(v),
   locked: (v) => Boolean(v),
+  open: (v) => Boolean(v),
   brightness: (v) => clamp(Number(v), 1, 100),
   position: (v) => clamp(Number(v), 0, 100),
   target: (v) => clamp(Number(v), 10, 30),
@@ -154,11 +156,12 @@ export class Home {
       case 'night': return [
         ...all('light', { on: false }), ...all('blinds', { position: 0 }), ...all('lock', { locked: true }),
         ...all('tv', { on: false }), { id: 'kitchen-coffee', changes: { on: false } },
+        ...all('garage', { open: false }),
         { id: 'thermostat', changes: { target: 18 } },
       ];
       case 'away': return [
         ...all('light', { on: false }), ...all('lock', { locked: true }), ...all('tv', { on: false }),
-        ...all('fan', { on: false }), ...all('plug', { on: false }),
+        ...all('fan', { on: false }), ...all('plug', { on: false }), ...all('garage', { open: false }),
         { id: 'thermostat', changes: { target: 16 } },
       ];
       case 'focus': return [
@@ -211,5 +214,6 @@ function describeChange(devices: Device[]): string {
     case 'fan': return `${d.name} ${d.on ? `on, speed ${d.speed}` : 'off'}`;
     case 'tv': return `${d.name} ${d.on ? `on, volume ${d.volume}` : 'off'}`;
     case 'plug': return `${d.name} ${d.on ? 'on' : 'off'}`;
+    case 'garage': return `${d.name} ${d.open ? 'opened' : 'closed'}`;
   }
 }
