@@ -5,7 +5,7 @@ import { Telemetry } from './Access';
 type Update = (id: string, changes: Partial<Device>) => void;
 
 const ICONS: Record<Device['type'], string> = {
-  light: '💡', blinds: '🪟', thermostat: '🌡️', lock: '🔒', fan: '🌀', plug: '🔌', tv: '📺', garage: '🚗',
+  light: '💡', blinds: '🪟', thermostat: '🌡️', lock: '🔒', fan: '🌀', plug: '🔌', tv: '📺', garage: '🚗', sensor: '📡',
 };
 
 const SWATCHES = ['#ffd9a0', '#ffffff', '#e6f0ff', '#ff4d4d', '#4cd97b', '#4d8dff', '#9b6bff', '#ff6fb5'];
@@ -17,6 +17,7 @@ function isActive(d: Device) {
     case 'lock': return !d.locked;
     case 'thermostat': return d.mode !== 'off';
     case 'garage': return d.open;
+    case 'sensor': return d.triggered;
   }
 }
 
@@ -29,6 +30,7 @@ function status(d: Device) {
     case 'tv': return d.on ? `Vol ${d.volume}` : 'Off';
     case 'plug': return d.on ? 'On' : 'Off';
     case 'thermostat': return `${d.current}° → ${d.target}°`;
+    case 'sensor': return d.triggered ? 'Triggered' : 'Clear';
     case 'garage': return d.moving ? `${d.moving[0].toUpperCase()}${d.moving.slice(1)}…` : d.open ? 'Open' : 'Closed';
   }
 }

@@ -6,6 +6,7 @@ import { AccountMenu, HardwarePanel, PeoplePanel, Toasts } from './components/Ac
 import { KasaPanel } from './components/Kasa';
 import { HubspacePanel } from './components/Hubspace';
 import { AnnouncementBanner, RoutineChips, TimersCard, WeatherCard } from './components/NovaWidgets';
+import { AlarmOverlay, SecurityPanel } from './components/Security';
 import { api, loadSession, saveSession, timeLeft, type Session } from './session';
 import { DeviceCard } from './components/DeviceCard';
 import { ActivityFeed, ClimateCard, EnergyCard, ScenesBar } from './components/Widgets';
@@ -35,7 +36,7 @@ export default function App() {
 }
 
 function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
-  const { state, connected, update, runScene, ask, toasts, dismiss, announcement, dismissAnnouncement, cancelTimer } = useHome(session.token, onSignOut);
+  const { state, connected, update, runScene, ask, toasts, dismiss, announcement, dismissAnnouncement, cancelTimer, security } = useHome(session.token, onSignOut);
   const [lang, setLangState] = useState<'en' | 'fr'>(() => { try { return localStorage.getItem('iqhomes.lang') === 'fr' ? 'fr' : 'en'; } catch { return 'en'; } });
   const setLang = (l: 'en' | 'fr') => { setLangState(l); try { localStorage.setItem('iqhomes.lang', l); } catch { /* ignore */ } };
   const [aiEnabled, setAiEnabled] = useState(false);
@@ -47,7 +48,7 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
   const now = useClock();
 
   const devices = useMemo(
-    () => (state?.devices ?? []).filter((d) => d.type !== 'thermostat' && (room === 'all' || d.room === room)),
+    () => (state?.devices ?? []).filter((d) => d.type !== 'thermostat' && d.type !== 'sensor' && (room === 'all' || d.room === room)),
     [state, room],
   );
 
@@ -147,6 +148,7 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
 
           <aside className="space-y-6">
             <TimersCard timers={state.timers ?? []} cancel={cancelTimer} />
+            {user.role !== 'guest' && <SecurityPanel state={state} actions={security} isOwner={user.role === 'owner'} />}
             <WeatherCard w={state.weather} />
             {thermostat && <ClimateCard t={thermostat} outside={state.outsideTemp} update={update} />}
             {user.role === 'owner' && <HubspacePanel session={session} rooms={state.rooms} />}
@@ -164,6 +166,7 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
       </div>
       <Toasts items={toasts} dismiss={dismiss} />
       <AnnouncementBanner a={announcement} dismiss={dismissAnnouncement} lang={lang} />
+      <AlarmOverlay state={state} silence={security.silence} />
     </BeamsBackground>
   );
 }

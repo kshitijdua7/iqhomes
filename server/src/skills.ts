@@ -13,6 +13,9 @@ export type Skill =
   | { kind: 'list'; what: TimerItem['kind'] | 'all' }
   | { kind: 'announce'; message: string }
   | { kind: 'weather' }
+  | { kind: 'security'; mode: 'disarmed' | 'home' | 'away' }
+  | { kind: 'silence' }
+  | { kind: 'securityStatus' }
   | { kind: 'defineRoutine'; phrase: string; actions: string }
   | { kind: 'deleteRoutine'; phrase: string }
   | { kind: 'listRoutines' }
@@ -93,6 +96,13 @@ export function matchSkill(raw: string, home: HomeState, by?: string, now = new 
   // --- announcements ---------------------------------------------------------------------------
   const ann = /^(?:(?:hey |ok |okay )?nova,?\s+)?(?:announce|broadcast|tell everyone|tell the house)\s+(?:that\s+)?(.+)$/i.exec(text);
   if (ann) return { kind: 'announce', message: ann[1].replace(/[.!]+$/, '') };
+
+  // --- security system (before timers: "turn off the alarm" while one is ringing means silence it) ---
+  if (/\b(silence|stop|turn off|shut off|shut up|quiet|cancel)\b.*\balarm\b/.test(c) && home.security?.alarm) return { kind: 'silence' };
+  if (/\b(disarm|deactivate|disable|turn off|switch off)\b.*\b(security|system|burglar alarm|house alarm)\b|^disarm\b/.test(c)) return { kind: 'security', mode: 'disarmed' };
+  if (/\b(arm|activate|enable|turn on|switch on|set)\b.*\b(security|system|burglar alarm|house alarm|alarm system)\b|^arm\b|\barm (it|away|home|stay)\b/.test(c))
+    return { kind: 'security', mode: /\b(home|stay|night|sleep)\b/.test(c) ? 'home' : 'away' };
+  if (/\b(is|are)\b.*\b(security|alarm system|house alarm|system)\b.*\b(on|armed|set|active)\b/.test(c)) return { kind: 'securityStatus' };
 
   // --- timers / alarms / reminders --------------------------------------------------------------
   const cancel = /\b(cancel|stop|delete|clear|turn off|dismiss)\b.*\b(timers?|alarms?|reminders?)\b/.exec(c);

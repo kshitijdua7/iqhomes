@@ -1,7 +1,7 @@
 // Shared data shapes for the whole smart home.
 // The web app keeps a copy of these in web/src/types.ts.
 
-export type DeviceType = 'light' | 'blinds' | 'thermostat' | 'lock' | 'fan' | 'plug' | 'tv' | 'garage';
+export type DeviceType = 'light' | 'blinds' | 'thermostat' | 'lock' | 'fan' | 'plug' | 'tv' | 'garage' | 'sensor';
 
 export interface BaseDevice {
   id: string;
@@ -69,7 +69,26 @@ export interface Garage extends BaseDevice {
   moving?: 'opening' | 'closing';
 }
 
-export type Device = Light | Blinds | Thermostat | Lock | Fan | Plug | Tv | Garage;
+/** Motion, door/window and safety sensors. Safety sensors (smoke, CO, leak) always alert, armed or not. */
+export interface Sensor extends BaseDevice {
+  type: 'sensor';
+  kind: 'motion' | 'contact' | 'smoke' | 'co' | 'leak';
+  triggered: boolean;     // motion seen / door open / smoke, CO or water detected
+  battery: number;
+  lastTriggered?: number;
+}
+
+export type Device = Light | Blinds | Thermostat | Lock | Fan | Plug | Tv | Garage | Sensor;
+
+export type SecurityMode = 'disarmed' | 'home' | 'away';
+export interface SecurityState {
+  mode: SecurityMode;
+  /** Set while an alarm is going off: an intruder (armed + sensor) or a safety hazard. */
+  alarm?: { kind: 'intruder' | 'smoke' | 'co' | 'leak'; sensorId: string; room: string; since: number };
+  changedAt: number;
+  changedBy?: string;
+  presenceSim: boolean;   // away mode: lights on/off randomly in the evening so it looks like someone's home
+}
 
 export interface Room { id: string; name: string; icon: string }
 
@@ -101,6 +120,7 @@ export interface HomeState {
   weather?: WeatherInfo;
   timers: TimerItem[];
   routines: Routine[];
+  security: SecurityState;
 }
 
 export interface WeatherInfo {

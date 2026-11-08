@@ -35,7 +35,20 @@ export function createDevices(): Device[] {
     { id: 'office-plug', name: 'Monitor Plug', room: 'office', type: 'plug', on: true, watts: 0 },
     { id: 'entrance-light', name: 'Porch Light', room: 'entrance', type: 'light', on: false, brightness: 100, color: '#ffe2b0', watts: 0 },
     { id: 'front-door', name: 'Front Door', room: 'entrance', type: 'lock', locked: true, battery: 87, watts: 0 },
+    { id: 'entrance-motion', name: 'Hallway Motion', room: 'entrance', type: 'sensor', kind: 'motion', triggered: false, battery: 92, watts: 0 },
+    { id: 'front-door-contact', name: 'Front Door Sensor', room: 'entrance', type: 'sensor', kind: 'contact', triggered: false, battery: 88, watts: 0 },
+    { id: 'living-window', name: 'Living Room Window', room: 'living', type: 'sensor', kind: 'contact', triggered: false, battery: 79, watts: 0 },
+    { id: 'living-motion', name: 'Living Room Motion', room: 'living', type: 'sensor', kind: 'motion', triggered: false, battery: 95, watts: 0 },
+    { id: 'kitchen-smoke', name: 'Kitchen Smoke Alarm', room: 'kitchen', type: 'sensor', kind: 'smoke', triggered: false, battery: 100, watts: 0 },
+    { id: 'kitchen-leak', name: 'Under-sink Leak Sensor', room: 'kitchen', type: 'sensor', kind: 'leak', triggered: false, battery: 84, watts: 0 },
+    { id: 'bedroom-co', name: 'Bedroom CO Detector', room: 'bedroom', type: 'sensor', kind: 'co', triggered: false, battery: 97, watts: 0 },
   ];
+}
+
+/** Sensors added in this version, merged into houses saved by older versions. */
+export function withNewDefaults(saved: Device[]): Device[] {
+  const missing = createDevices().filter((d) => d.type === 'sensor' && !saved.some((s) => s.id === d.id));
+  return [...saved, ...missing];
 }
 
 /** Realistic-ish power draw for each device, in watts. */
@@ -53,6 +66,7 @@ export function powerOf(d: Device): number {
     case 'blinds': return 0.5;
     case 'lock': return 0.1;
     case 'garage': return 2;
+    case 'sensor': return 0.05;
   }
 }
 
@@ -64,6 +78,7 @@ const SANITIZERS: Record<string, (v: unknown) => unknown> = {
   on: (v) => Boolean(v),
   locked: (v) => Boolean(v),
   open: (v) => Boolean(v),
+  triggered: (v) => Boolean(v),
   brightness: (v) => clamp(Number(v), 1, 100),
   position: (v) => clamp(Number(v), 0, 100),
   target: (v) => clamp(Number(v), 10, 30),
@@ -75,18 +90,21 @@ const SANITIZERS: Record<string, (v: unknown) => unknown> = {
 
 export class Home {
   state: HomeState;
+  /** Called after a scene runs (the security system arms itself for Away / Good Night). */
+  sceneHook?: (sceneId: string, by?: string) => void;
 
   constructor(saved?: Partial<HomeState>) {
     this.state = {
       rooms: ROOMS,
       scenes: SCENES,
       // hardware links are live-only: they're re-established when the board/plug reconnects
-      devices: (saved?.devices ?? createDevices()).map(({ hardware: _hw, ...d }) => d as Device),
+      devices: withNewDefaults((saved?.devices ?? createDevices()).map(({ hardware: _hw, ...d }) => d as Device)),
       activity: saved?.activity ?? [],
       energy: [],
       outsideTemp: 6,
       timers: saved?.timers ?? [],
       routines: saved?.routines ?? [],
+      security: { mode: 'disarmed', changedAt: Date.now(), presenceSim: true, ...saved?.security, alarm: undefined },
     };
     this.recalcPower();
   }
@@ -178,7 +196,9 @@ export class Home {
   runScene(sceneId: string, source: ActivityEntry['source'] = 'scene', by?: string) {
     const scene = this.state.scenes.find((s) => s.id === sceneId);
     if (!scene) return [];
-    return this.apply(this.scenePatches(sceneId), source, `${scene.icon} Scene "${scene.name}" activated`, by);
+    const changed = this.apply(this.scenePatches(sceneId), source, `${scene.icon} Scene "${scene.name}" activated`, by);
+    this.sceneHook?.(sceneId, by);
+    return changed;
   }
 
   recalcPower() {
@@ -217,5 +237,17 @@ function describeChange(devices: Device[]): string {
     case 'tv': return `${d.name} ${d.on ? `on, volume ${d.volume}` : 'off'}`;
     case 'plug': return `${d.name} ${d.on ? 'on' : 'off'}`;
     case 'garage': return `${d.name} ${d.open ? 'opened' : 'closed'}`;
+    case 'sensor': return `${d.name}: ${sensorWords(d.kind, d.triggered)}`;
+  }
+}
+
+export function sensorWords(kind: string, triggered: boolean) {
+  switch (kind) {
+    case 'motion': return triggered ? 'motion detected' : 'clear';
+    case 'contact': return triggered ? 'opened' : 'closed';
+    case 'smoke': return triggered ? 'SMOKE DETECTED' : 'all clear';
+    case 'co': return triggered ? 'CARBON MONOXIDE DETECTED' : 'all clear';
+    case 'leak': return triggered ? 'WATER LEAK DETECTED' : 'dry';
+    default: return triggered ? 'triggered' : 'clear';
   }
 }

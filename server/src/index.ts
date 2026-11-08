@@ -12,6 +12,7 @@ import { matchSkill, describeTimers, fmtDuration } from './skills.js';
 import { askBrain, aiEnabled, remember } from './brain.js';
 import { getWeather, weatherSentence } from './weather.js';
 import { frenchToEnglish } from './french.js';
+import { Security } from './security.js';
 import { Auth, DEFAULT_PINS, canControl, canManagePeople, canRunScenes, filterPatches, toPublic, type StoredUser } from './auth.js';
 import { Hardware, plugsFromEnv } from './hardware.js';
 import { Push, type Alert } from './push.js';
@@ -44,6 +45,7 @@ const saveHome = () => persist('state.json', () => ({
   activity: home.state.activity,
   timers: home.state.timers,
   routines: home.state.routines,
+  security: { ...home.state.security, alarm: undefined },
 }));
 const firstRun = !load('auth.json');
 const auth: Auth = new Auth(load('auth.json'), () => persist('auth.json', () => auth.data));
@@ -104,8 +106,27 @@ function broadcast() {
 }
 
 /** Runs after any real change: push it to hardware, raise alerts, update every screen. */
+const security: Security = new Security(home, {
+  alert(title, body, urgency, roles = ['owner', 'family']) {
+    io.emit('announce', { text: `${title}. ${body}`, kind: urgency === 'alarm' ? 'danger' : urgency === 'warn' ? 'warning' : 'info', ring: urgency === 'alarm' });
+    void push.send({ title, body, tag: `security-${title}`, url: '/' }, roles);
+    home.log('system', title);
+    broadcast();
+  },
+  apply(patches, note) {
+    const changed = home.apply(patches, 'system', note);
+    if (changed.length) afterChange(changed, undefined);
+  },
+});
+home.sceneHook = (sceneId, by) => {
+  if (sceneId === 'away' && home.state.security.mode !== 'away') security.setMode('away', by);
+  if (sceneId === 'night' && home.state.security.mode === 'disarmed') security.setMode('home', by);
+  if (sceneId === 'morning' && home.state.security.mode === 'home') security.setMode('disarmed', by);
+};
+
 function afterChange(changed: Device[], by: StoredUser | undefined) {
   hardware.sync(changed);
+  for (const d of changed) if (d.type === 'sensor') security.onSensor(d);
   kasa.sync(changed);
   hubspace.sync(changed);
   for (const d of changed) if (d.type === 'lock') onLockChanged(d, by);
@@ -421,6 +442,22 @@ async function ask(user: StoredUser, rawText: string, lang: 'en' | 'fr' = 'en'):
       }
       case 'list':
         return ok(describeTimers(home.state.timers, skill.what));
+      case 'security': {
+        if (isGuest) return ok('Sorry, guests can’t change the security system.');
+        const reply = security.setMode(skill.mode, user.name);
+        broadcast();
+        return ok(reply);
+      }
+      case 'silence': {
+        const reply = security.silence(user.name);
+        broadcast();
+        return ok(reply);
+      }
+      case 'securityStatus': {
+        if (isGuest) return ok('Sorry, that’s not covered by your guest pass.');
+        const m = home.state.security.mode;
+        return ok(m === 'disarmed' ? 'The security system is off.' : `Yes, it's armed in ${m === 'away' ? 'Away' : 'Home'} mode.`);
+      }
       case 'weather': {
         const w = await getWeather();
         return ok(w ? weatherSentence(w) : "I can't reach the weather service right now.");
@@ -501,6 +538,34 @@ io.on('connection', (socket: Socket) => {
     if (changed.length) afterChange(changed, user);
   });
 
+  socket.on('security:set', (mode: string) => {
+    const user = current();
+    if (!user || user.role === 'guest' || !['disarmed', 'home', 'away'].includes(mode)) return;
+    security.setMode(mode as 'disarmed' | 'home' | 'away', user.name);
+    broadcast();
+  });
+  socket.on('security:silence', () => {
+    const user = current();
+    if (!user) return;
+    security.silence(user.name);
+    broadcast();
+  });
+  socket.on('security:presence', (on: boolean) => {
+    const user = current();
+    if (!user || user.role === 'guest') return;
+    home.state.security.presenceSim = Boolean(on);
+    broadcast();
+  });
+  /** Owner demo button: trigger or clear a sensor as if it fired for real. */
+  socket.on('sensor:simulate', (id: string, triggered: boolean) => {
+    const user = current();
+    if (!user || user.role !== 'owner') return;
+    const d = home.device(String(id));
+    if (d?.type !== 'sensor') return;
+    const changed = home.apply([{ id: d.id, changes: { triggered: Boolean(triggered) } }], 'system', `🧪 ${d.name}: ${triggered ? 'simulated trigger' : 'cleared'}`, user.name);
+    if (changed.length) afterChange(changed, user);
+  });
+
   socket.on('timer:cancel', (timerId: string) => {
     const user = current();
     if (!user) return;
@@ -536,6 +601,9 @@ setInterval(() => {
   }
   broadcast();
 }, 1000).unref();
+
+// ---- Presence simulation while away ----
+setInterval(() => security.presenceTick(home.state.weather?.sunset), 60_000).unref();
 
 // ---- Real weather every 10 minutes ----
 async function refreshWeather() {

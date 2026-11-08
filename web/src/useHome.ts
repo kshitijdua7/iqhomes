@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type { Device, DevicePatch, HomeState } from './types';
 
@@ -52,6 +52,12 @@ export function useHome(token: string, onSignedOut: () => void) {
   const runScene = useCallback((id: string) => socket.current?.emit('scene:run', id), []);
 
   const cancelTimer = useCallback((id: string) => socket.current?.emit('timer:cancel', id), []);
+  const security = useMemo(() => ({
+    setMode: (m: string) => socket.current?.emit('security:set', m),
+    silence: () => socket.current?.emit('security:silence'),
+    simulate: (id: string, triggered: boolean) => socket.current?.emit('sensor:simulate', id, triggered),
+    setPresence: (on: boolean) => socket.current?.emit('security:presence', on),
+  }), []);
   const dismissAnnouncement = useCallback(() => setAnnouncement(null), []);
 
   const ask = useCallback(
@@ -67,5 +73,5 @@ export function useHome(token: string, onSignedOut: () => void) {
     [],
   );
 
-  return { state, connected, update, runScene, ask, toasts, toast, dismiss, announcement, dismissAnnouncement, cancelTimer };
+  return { state, connected, update, runScene, ask, toasts, toast, dismiss, announcement, dismissAnnouncement, cancelTimer, security };
 }
