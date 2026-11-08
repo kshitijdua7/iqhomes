@@ -78,7 +78,8 @@ export class Home {
     this.state = {
       rooms: ROOMS,
       scenes: SCENES,
-      devices: saved?.devices ?? createDevices(),
+      // hardware links are live-only: they're re-established when the board/plug reconnects
+      devices: (saved?.devices ?? createDevices()).map(({ hardware: _hw, ...d }) => d as Device),
       activity: saved?.activity ?? [],
       energy: [],
       outsideTemp: 6,
@@ -88,13 +89,13 @@ export class Home {
 
   device(id: string) { return this.state.devices.find((d) => d.id === id); }
 
-  log(source: ActivityEntry['source'], text: string) {
-    this.state.activity.unshift({ id: newId(), time: Date.now(), source, text });
+  log(source: ActivityEntry['source'], text: string, by?: string) {
+    this.state.activity.unshift({ id: newId(), time: Date.now(), source, text, ...(by ? { by } : {}) });
     this.state.activity.length = Math.min(this.state.activity.length, 60);
   }
 
   /** Apply a batch of changes. Unknown devices/fields are ignored, numbers are clamped. Returns devices that changed. */
-  apply(patches: DevicePatch[], source: ActivityEntry['source'] = 'app', note?: string): Device[] {
+  apply(patches: DevicePatch[], source: ActivityEntry['source'] = 'app', note?: string, by?: string): Device[] {
     const changed: Device[] = [];
     for (const { id, changes } of patches) {
       const d = this.device(id) as unknown as Record<string, unknown> | undefined;
@@ -110,7 +111,7 @@ export class Home {
     }
     if (changed.length) {
       this.recalcPower();
-      this.log(source, note ?? describeChange(changed));
+      this.log(source, note ?? describeChange(changed), by);
     }
     return changed;
   }
@@ -153,14 +154,18 @@ export class Home {
     }
   }
 
-  runScene(sceneId: string, source: ActivityEntry['source'] = 'scene') {
+  runScene(sceneId: string, source: ActivityEntry['source'] = 'scene', by?: string) {
     const scene = this.state.scenes.find((s) => s.id === sceneId);
     if (!scene) return [];
-    return this.apply(this.scenePatches(sceneId), source, `${scene.icon} Scene "${scene.name}" activated`);
+    return this.apply(this.scenePatches(sceneId), source, `${scene.icon} Scene "${scene.name}" activated`, by);
   }
 
   recalcPower() {
-    for (const d of this.state.devices) d.watts = Math.round(powerOf(d) * 10) / 10;
+    for (const d of this.state.devices) {
+      // A real smart plug that measures its own power wins over the estimate.
+      const measured = d.hardware?.online ? d.hardware.telemetry?.watts : undefined;
+      d.watts = Math.round((measured ?? powerOf(d)) * 10) / 10;
+    }
   }
 
   totalWatts() { return Math.round(this.state.devices.reduce((s, d) => s + d.watts, 0)); }
