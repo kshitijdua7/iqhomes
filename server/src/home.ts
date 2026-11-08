@@ -85,6 +85,8 @@ export class Home {
       activity: saved?.activity ?? [],
       energy: [],
       outsideTemp: 6,
+      timers: saved?.timers ?? [],
+      routines: saved?.routines ?? [],
     };
     this.recalcPower();
   }

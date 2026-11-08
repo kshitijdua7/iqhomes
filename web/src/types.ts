@@ -98,6 +98,34 @@ export interface HomeState {
   activity: ActivityEntry[];
   energy: { time: number; watts: number }[]; // rolling history for the power chart
   outsideTemp: number;
+  weather?: WeatherInfo;
+  timers: TimerItem[];
+  routines: Routine[];
+}
+
+export interface WeatherInfo {
+  place: string; temp: number; feelsLike: number; condition: string; icon: string;
+  high: number; low: number; rainChance: number; wind: number; sunrise: number; sunset: number;
+  hourly: { time: number; temp: number; icon: string }[]; updated: number;
+}
+
+/** Timers, alarms and reminders set by voice. */
+export interface TimerItem {
+  id: string;
+  kind: 'timer' | 'alarm' | 'reminder';
+  label: string;
+  at: number;            // when it fires (ms)
+  duration?: number;     // timers: original length (ms), for the progress ring
+  createdBy?: string;
+  scene?: string;        // alarms: scene to run when it goes off (e.g. Good Morning)
+}
+
+/** A custom phrase that runs a list of actions: "when I say 'I'm home', turn on the porch light". */
+export interface Routine {
+  id: string;
+  phrase: string;        // normalized trigger phrase
+  actions: string;       // what Nova should do, in plain words
+  createdBy?: string;
 }
 
 /** A single change to one device. The UI and the voice assistant both produce these. */

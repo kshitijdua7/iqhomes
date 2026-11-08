@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useHome } from './useHome';
 import { Assistant } from './components/Assistant';
 import { Login } from './components/Login';
 import { AccountMenu, HardwarePanel, PeoplePanel, Toasts } from './components/Access';
 import { KasaPanel } from './components/Kasa';
 import { HubspacePanel } from './components/Hubspace';
+import { AnnouncementBanner, RoutineChips, TimersCard, WeatherCard } from './components/NovaWidgets';
 import { api, loadSession, saveSession, timeLeft, type Session } from './session';
 import { DeviceCard } from './components/DeviceCard';
 import { ActivityFeed, ClimateCard, EnergyCard, ScenesBar } from './components/Widgets';
@@ -34,7 +35,12 @@ export default function App() {
 }
 
 function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
-  const { state, connected, update, runScene, ask, toasts, dismiss } = useHome(session.token, onSignOut);
+  const { state, connected, update, runScene, ask, toasts, dismiss, announcement, dismissAnnouncement, cancelTimer } = useHome(session.token, onSignOut);
+  const [lang, setLangState] = useState<'en' | 'fr'>(() => { try { return localStorage.getItem('iqhomes.lang') === 'fr' ? 'fr' : 'en'; } catch { return 'en'; } });
+  const setLang = (l: 'en' | 'fr') => { setLangState(l); try { localStorage.setItem('iqhomes.lang', l); } catch { /* ignore */ } };
+  const [aiEnabled, setAiEnabled] = useState(false);
+  useEffect(() => { api<{ ai: boolean }>('/api/assistant/status', { token: session.token }).then((r) => setAiEnabled(r.ai)).catch(() => {}); }, [session.token]);
+  const askNova = useCallback((t: string) => ask(t, lang), [ask, lang]);
   const user = session.user;
   const [lockPrompt, setLockPrompt] = useState<string | null>(() => new URLSearchParams(location.search).get('lock'));
   const [room, setRoom] = useState('all');
@@ -116,11 +122,12 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
           {lightsOn} light{lightsOn === 1 ? '' : 's'} on · {thermostat ? `${thermostat.current}° inside · ` : ''}{user.role === 'guest' ? `${devices.length} devices you can control` : unlocked ? <span className="text-amber-300">{unlocked} door unlocked</span> : 'all doors locked'}
         </p>
 
-        <div className="mt-6"><Assistant ask={ask} /></div>
+        <div className="mt-6"><Assistant ask={askNova} lang={lang} setLang={setLang} aiEnabled={aiEnabled} /></div>
 
         {state.scenes.length > 0 && <>
           <h2 className="mb-3 mt-8 font-display text-sm font-semibold uppercase tracking-widest text-white/60">Scenes</h2>
           <ScenesBar scenes={state.scenes} run={runScene} />
+          <RoutineChips routines={state.routines ?? []} run={(p) => void askNova(p)} />
         </>}
 
         <div className="mt-8 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -139,6 +146,8 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
           </main>
 
           <aside className="space-y-6">
+            <TimersCard timers={state.timers ?? []} cancel={cancelTimer} />
+            <WeatherCard w={state.weather} />
             {thermostat && <ClimateCard t={thermostat} outside={state.outsideTemp} update={update} />}
             {user.role === 'owner' && <HubspacePanel session={session} rooms={state.rooms} />}
             {user.role === 'owner' && <KasaPanel session={session} rooms={state.rooms} />}
@@ -154,6 +163,7 @@ function Dashboard({ session, onSignOut }: { session: Session; onSignOut: () => 
         </footer>
       </div>
       <Toasts items={toasts} dismiss={dismiss} />
+      <AnnouncementBanner a={announcement} dismiss={dismissAnnouncement} lang={lang} />
     </BeamsBackground>
   );
 }

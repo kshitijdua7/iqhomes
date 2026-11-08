@@ -2,20 +2,33 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AssistantResult } from '../useHome';
 import { useVoice } from '../useVoice';
 
-interface Turn { id: number; who: 'you' | 'nova'; text: string; ok?: boolean }
+interface Turn { id: number; who: 'you' | 'nova'; text: string; ok?: boolean; ai?: boolean }
 
-const SUGGESTIONS = [
-  'Dim the living room to 30% and close the blinds',
-  "It's movie night",
-  "I'm cold",
-  'Is the front door locked?',
-  'Make the bedroom lights purple',
-  'How much power are we using?',
-];
+const SUGGESTIONS = {
+  en: [
+    "What's the weather?",
+    'Set a timer for 10 minutes',
+    'Remind me to take out the garbage at 8',
+    'Good morning',
+    "When I say 'I'm home', turn on the porch light and set the heat to 22",
+    'Announce dinner is ready',
+    'Dim the living room to 30% and close the blinds',
+    'Is the front door locked?',
+  ],
+  fr: [
+    'Quel temps fait-il?',
+    'Allume les lumières du salon',
+    'Minuterie pour 5 minutes',
+    'Règle la température à 21 degrés',
+    'Bonne nuit',
+  ],
+};
 
-export function Assistant({ ask }: { ask: (t: string) => Promise<AssistantResult> }) {
+export function Assistant({ ask, lang, setLang, aiEnabled }: {
+  ask: (t: string) => Promise<AssistantResult>; lang: 'en' | 'fr'; setLang: (l: 'en' | 'fr') => void; aiEnabled?: boolean;
+}) {
   const [turns, setTurns] = useState<Turn[]>([
-    { id: 0, who: 'nova', text: 'Hi, I\'m Nova. Tap the orb and talk to me, or type below.' },
+    { id: 0, who: 'nova', text: 'Hi, I\'m Nova. Tap the orb and talk to me, or type below. Try "what\'s the weather?" or "set a timer for 10 minutes".' },
   ]);
   const [text, setText] = useState('');
   const idRef = useRef(1);
@@ -24,11 +37,11 @@ export function Assistant({ ask }: { ask: (t: string) => Promise<AssistantResult
   const onCommand = useCallback(async (t: string) => {
     setTurns((p): Turn[] => [...p, { id: idRef.current++, who: 'you', text: t }]);
     const r = await ask(t);
-    setTurns((p): Turn[] => [...p, { id: idRef.current++, who: 'nova' as const, text: r.reply, ok: r.understood }].slice(-30));
+    setTurns((p): Turn[] => [...p, { id: idRef.current++, who: 'nova' as const, text: r.reply, ok: r.understood, ai: r.ai }].slice(-30));
     return r.reply;
   }, [ask]);
 
-  const voice = useVoice(onCommand);
+  const voice = useVoice(onCommand, lang);
 
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' }); }, [turns]);
 
@@ -61,6 +74,10 @@ export function Assistant({ ask }: { ask: (t: string) => Promise<AssistantResult
                     className={`rounded-full px-3 py-1 transition-colors ${voice.wakeWord ? 'bg-nova text-white' : 'bg-white/8 text-white/60 hover:text-white'}`}>
               Wake word {voice.wakeWord ? 'on' : 'off'}
             </button>
+            <button onClick={() => setLang(lang === 'en' ? 'fr' : 'en')} title="Language / Langue"
+                    className="rounded-full bg-white/8 px-3 py-1 text-white/70 transition-colors hover:text-white">
+              {lang === 'en' ? '🇨🇦 EN' : '🇫🇷 FR'}
+            </button>
             <button onClick={() => voice.setVoiceOut(!voice.voiceOut)}
                     className={`rounded-full px-3 py-1 transition-colors ${voice.voiceOut ? 'bg-white/15 text-white' : 'bg-white/8 text-white/60'}`}>
               {voice.voiceOut ? '🔊 Voice' : '🔇 Muted'}
@@ -76,18 +93,19 @@ export function Assistant({ ask }: { ask: (t: string) => Promise<AssistantResult
               <div key={t.id} className={`fade-in flex ${t.who === 'you' ? 'justify-end' : ''}`}>
                 <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm leading-relaxed ${
                   t.who === 'you' ? 'rounded-br-md bg-nova/80 text-white' : t.ok === false ? 'rounded-bl-md bg-amber-400/10 text-amber-100' : 'rounded-bl-md bg-white/8 text-white/90'}`}>
+                  {t.ai && <span className="mr-1.5 rounded-full bg-nova-2/25 px-1.5 py-0.5 text-[10px] font-semibold text-nova-2" title="Answered by Nova's AI brain">🧠 AI</span>}
                   {t.text}
                 </div>
               </div>
             ))}
           </div>
           <form onSubmit={(e) => { e.preventDefault(); submit(text); }} className="mt-3 flex gap-2">
-            <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask Nova anything about your home…"
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder={lang === 'fr' ? 'Demandez à Nova…' : aiEnabled ? 'Ask Nova anything, in your own words…' : 'Ask Nova anything about your home…'}
                    className="min-w-0 flex-1 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm outline-none placeholder:text-white/30 focus:border-nova" />
             <button className="rounded-full bg-gradient-to-r from-nova to-nova-2 px-5 text-sm font-medium transition-opacity hover:opacity-90">Send</button>
           </form>
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {SUGGESTIONS.map((s) => (
+            {SUGGESTIONS[lang].map((s) => (
               <button key={s} onClick={() => submit(s)} className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-white/55 transition-colors hover:border-white/25 hover:text-white">
                 {s}
               </button>

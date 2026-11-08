@@ -26,7 +26,7 @@ export type VoiceMode = 'idle' | 'listening' | 'thinking' | 'speaking';
  *  - push-to-talk: tap the mic, say one command
  *  - wake word: always listening in the background, reacts to "Hey Nova ..."
  */
-export function useVoice(onCommand: (text: string) => Promise<string>) {
+export function useVoice(onCommand: (text: string) => Promise<string>, lang: 'en' | 'fr' = 'en') {
   const supported = Boolean(Ctor);
   const [mode, setMode] = useState<VoiceMode>('idle');
   const [interim, setInterim] = useState('');
@@ -43,12 +43,15 @@ export function useVoice(onCommand: (text: string) => Promise<string>) {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     const voices = window.speechSynthesis.getVoices();
-    u.voice = voices.find((v) => /Samantha|Google UK English Female|Aria|Jenny|Zira/i.test(v.name)) ?? voices.find((v) => v.lang.startsWith('en')) ?? null;
+    u.voice = lang === 'fr'
+      ? voices.find((v) => /^fr-CA/i.test(v.lang)) ?? voices.find((v) => /Amélie|Thomas|Google français/i.test(v.name)) ?? voices.find((v) => v.lang.startsWith('fr')) ?? null
+      : voices.find((v) => /Samantha|Google UK English Female|Aria|Jenny|Zira/i.test(v.name)) ?? voices.find((v) => v.lang.startsWith('en')) ?? null;
+    u.lang = lang === 'fr' ? 'fr-CA' : 'en-CA';
     u.rate = 1.03; u.pitch = 1.05;
     u.onend = () => resolve(); u.onerror = () => resolve();
     setMode('speaking');
     window.speechSynthesis.speak(u);
-  }), [voiceOut]);
+  }), [voiceOut, lang]);
 
   const handle = useCallback(async (text: string) => {
     if (busy.current || !text.trim()) return;
@@ -69,7 +72,7 @@ export function useVoice(onCommand: (text: string) => Promise<string>) {
     if (!Ctor) return;
     rec.current?.abort();
     const r = new Ctor();
-    r.lang = 'en-CA'; r.interimResults = true; r.continuous = continuous;
+    r.lang = lang === 'fr' ? 'fr-CA' : 'en-CA'; r.interimResults = true; r.continuous = continuous;
     r.onresult = (e) => {
       let finalText = ''; let partial = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -91,7 +94,7 @@ export function useVoice(onCommand: (text: string) => Promise<string>) {
       const afterWake = finalText.split(WAKE).pop()?.trim() ?? '';
       if (WAKE.test(finalText)) {
         if (afterWake.split(' ').length >= 2) { awaitingCommand.current = false; void handle(afterWake); }
-        else { awaitingCommand.current = true; void speak('Yes?').then(() => setMode('listening')); }
+        else { awaitingCommand.current = true; void speak(lang === 'fr' ? 'Oui?' : 'Yes?').then(() => setMode('listening')); }
       } else if (awaitingCommand.current) {
         awaitingCommand.current = false; void handle(finalText);
       }
@@ -105,7 +108,7 @@ export function useVoice(onCommand: (text: string) => Promise<string>) {
     rec.current = r;
     try { r.start(); } catch { /* ignore double start */ }
     if (!continuous) setMode('listening');
-  }, [handle, speak]);
+  }, [handle, speak, lang]);
 
   const pushToTalk = useCallback(() => {
     if (mode === 'listening' && !wakeWord) return stop();

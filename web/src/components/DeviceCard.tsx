@@ -1,10 +1,11 @@
-import type { Device } from '../types';
+import { useState } from 'react';
+import type { Device, Garage } from '../types';
 import { Telemetry } from './Access';
 
 type Update = (id: string, changes: Partial<Device>) => void;
 
 const ICONS: Record<Device['type'], string> = {
-  light: '💡', blinds: '🪟', thermostat: '🌡️', lock: '🔒', fan: '🌀', plug: '🔌', tv: '📺',
+  light: '💡', blinds: '🪟', thermostat: '🌡️', lock: '🔒', fan: '🌀', plug: '🔌', tv: '📺', garage: '🚗',
 };
 
 const SWATCHES = ['#ffd9a0', '#ffffff', '#e6f0ff', '#ff4d4d', '#4cd97b', '#4d8dff', '#9b6bff', '#ff6fb5'];
@@ -15,6 +16,7 @@ function isActive(d: Device) {
     case 'blinds': return d.position > 0;
     case 'lock': return !d.locked;
     case 'thermostat': return d.mode !== 'off';
+    case 'garage': return d.open;
   }
 }
 
@@ -27,6 +29,7 @@ function status(d: Device) {
     case 'tv': return d.on ? `Vol ${d.volume}` : 'Off';
     case 'plug': return d.on ? 'On' : 'Off';
     case 'thermostat': return `${d.current}° → ${d.target}°`;
+    case 'garage': return d.moving ? `${d.moving[0].toUpperCase()}${d.moving.slice(1)}…` : d.open ? 'Open' : 'Closed';
   }
 }
 
@@ -76,6 +79,8 @@ export function DeviceCard({ device: d, update, roomName }: { device: Device; up
       </div>
 
       {d.hardware?.online && d.hardware.telemetry && <div className="relative mt-3"><Telemetry t={d.hardware.telemetry} /></div>}
+
+      {d.type === 'garage' && <GarageControls d={d} update={update} />}
 
       <div className="relative mt-4 space-y-3">
         {d.type === 'light' && d.dimmable !== false && (
@@ -137,6 +142,29 @@ export function DeviceCard({ device: d, update, roomName }: { device: Device; up
 
         <div className="text-[11px] text-white/35">{d.watts} W</div>
       </div>
+    </div>
+  );
+}
+
+/** Opening a garage is a big deal, so it takes a second tap to confirm. Closing is one tap. */
+function GarageControls({ d, update }: { d: Garage; update: Update }) {
+  const [confirm, setConfirm] = useState(false);
+  if (d.moving) return <div className="relative mt-4 h-10 animate-pulse rounded-2xl bg-white/5 text-center text-sm leading-10 text-white/60">{d.moving === 'opening' ? '⬆️ Opening…' : '⬇️ Closing…'}</div>;
+  return (
+    <div className="relative mt-4">
+      {d.open ? (
+        <button onClick={() => update(d.id, { open: false })}
+                className="w-full rounded-2xl bg-gradient-to-r from-nova to-nova-2 py-2.5 text-sm font-medium">⬇️ Close garage</button>
+      ) : confirm ? (
+        <div className="flex gap-2">
+          <button onClick={() => { update(d.id, { open: true }); setConfirm(false); }}
+                  className="flex-1 rounded-2xl bg-amber-400/90 py-2.5 text-sm font-semibold text-ink">Tap to confirm: open</button>
+          <button onClick={() => setConfirm(false)} className="rounded-2xl bg-white/8 px-4 text-sm">Cancel</button>
+        </div>
+      ) : (
+        <button onClick={() => { setConfirm(true); setTimeout(() => setConfirm(false), 5000); }}
+                className="w-full rounded-2xl bg-white/8 py-2.5 text-sm hover:bg-white/12">⬆️ Open garage</button>
+      )}
     </div>
   );
 }

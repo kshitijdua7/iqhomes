@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { Server, type Socket } from 'socket.io';
 import { Home } from './home.js';
 import { interpret } from './assistant.js';
+import { matchSkill, describeTimers, fmtDuration } from './skills.js';
+import { askBrain, aiEnabled, remember } from './brain.js';
+import { getWeather, weatherSentence } from './weather.js';
+import { frenchToEnglish } from './french.js';
 import { Auth, DEFAULT_PINS, canControl, canManagePeople, canRunScenes, filterPatches, toPublic, type StoredUser } from './auth.js';
 import { Hardware, plugsFromEnv } from './hardware.js';
 import { Push, type Alert } from './push.js';
@@ -38,6 +42,8 @@ const home = new Home(load('state.json'));
 const saveHome = () => persist('state.json', () => ({
   devices: home.state.devices.map(({ hardware: _hw, ...d }) => d),
   activity: home.state.activity,
+  timers: home.state.timers,
+  routines: home.state.routines,
 }));
 const firstRun = !load('auth.json');
 const auth: Auth = new Auth(load('auth.json'), () => persist('auth.json', () => auth.data));
@@ -320,7 +326,7 @@ app.post('/api/push/test', requireUser, async (req, res) => {
 /** Topics a guest can't even ask about, because their pass hides those devices. */
 const GUEST_PRIVATE = /\b(garage|lock|locked|unlock|door|doors|thermostat|temperature|heat|heating|cool|cooling|degrees?|cold|warm|hot|energy|power|watts?|bill)\b/;
 
-function ask(user: StoredUser, text: string) {
+function askDevices(user: StoredUser, text: string) {
   if (user.role !== 'guest') {
     const result = interpret(text, home.state);
     const changed: Device[] = [];
@@ -353,7 +359,117 @@ function ask(user: StoredUser, text: string) {
   return { ...mine, scenes: [], patches: allowed, reply: mine.reply + skipped };
 }
 
-app.post('/api/assistant', requireUser, (req, res) => res.json(ask((req as Authed).user, String(req.body?.text ?? '').slice(0, 300))));
+type AskResult = { understood: boolean; reply: string; patches: DevicePatch[]; scenes: string[]; ai?: boolean };
+
+/**
+ * Everything Nova can do, in order:
+ *   1. skills (routines, announcements, timers/alarms/reminders, weather)
+ *   2. the built-in device parser (fast, free, offline)
+ *   3. the AI brain, only if 1 and 2 didn't understand (and an API key is set)
+ * The morning briefing is added to "good morning".
+ */
+async function ask(user: StoredUser, rawText: string, lang: 'en' | 'fr' = 'en'): Promise<AskResult> {
+  const original = rawText.trim();
+  // Without the AI brain, French is translated to English first; with it, the AI gets the original French.
+  const text = lang === 'fr' ? frenchToEnglish(original) : original;
+  const ok = (reply: string): AskResult => { remember(user.name, text, reply); return { understood: true, reply, patches: [], scenes: [] }; };
+  const isGuest = user.role === 'guest';
+  const skill = matchSkill(text, home.state, user.name);
+
+  if (skill) {
+    switch (skill.kind) {
+      case 'defineRoutine': {
+        if (isGuest) return ok('Sorry, guests can’t create routines.');
+        const test = interpret(skill.actions, home.state);
+        if (!test.patches.length && !test.scenes.length) return ok(`I didn't understand what to do for "${skill.phrase}". Try something like: when I say good evening, dim the living room to 40 percent.`);
+        home.state.routines = home.state.routines.filter((r) => r.phrase !== skill.phrase);
+        home.state.routines.push({ id: `r${Date.now().toString(36)}`, phrase: skill.phrase, actions: skill.actions, createdBy: user.name });
+        home.log('system', `✨ New routine "${skill.phrase}" created`, user.name);
+        broadcast();
+        return ok(`Got it. When you say "${skill.phrase}", I'll ${skill.actions.replace(/^(and )?then /, '')}.`);
+      }
+      case 'deleteRoutine': {
+        if (isGuest) return ok('Sorry, guests can’t change routines.');
+        const before = home.state.routines.length;
+        home.state.routines = home.state.routines.filter((r) => r.phrase !== skill.phrase);
+        if (before === home.state.routines.length) return ok(`I couldn't find a routine called "${skill.phrase}".`);
+        broadcast();
+        return ok(`Deleted the "${skill.phrase}" routine.`);
+      }
+      case 'listRoutines':
+        return ok(home.state.routines.length ? `Your routines: ${home.state.routines.map((r) => `"${r.phrase}"`).join(', ')}.` : 'You have no custom routines yet. Try: when I say "I\'m home", turn on the porch light.');
+      case 'runRoutine': {
+        const r = askDevices(user, skill.routine.actions);
+        return { ...r, reply: r.understood ? `Running "${skill.routine.phrase}". ${r.reply}` : r.reply };
+      }
+      case 'announce':
+        io.emit('announce', { text: skill.message, from: user.name });
+        home.log('system', `📢 "${skill.message}"`, user.name);
+        broadcast();
+        return ok(`Announcing: ${skill.message}.`);
+      case 'timer':
+        if (isGuest && skill.item.kind === 'alarm') return ok('Sorry, guests can’t set house alarms.');
+        home.state.timers.push(skill.item);
+        broadcast();
+        return ok(skill.reply);
+      case 'cancel': {
+        const before = home.state.timers.length;
+        home.state.timers = home.state.timers.filter((t) => t.kind !== skill.what || (isGuest && t.createdBy !== user.name));
+        const n = before - home.state.timers.length;
+        broadcast();
+        return ok(n ? `Cancelled ${n === 1 ? `your ${skill.what}` : `${n} ${skill.what}s`}.` : `You don't have any ${skill.what}s to cancel.`);
+      }
+      case 'list':
+        return ok(describeTimers(home.state.timers, skill.what));
+      case 'weather': {
+        const w = await getWeather();
+        return ok(w ? weatherSentence(w) : "I can't reach the weather service right now.");
+      }
+    }
+  }
+
+  let result: AskResult = askDevices(user, text);
+
+  // 3. AI fallback when the parser didn't understand
+  if (!result.understood && aiEnabled()) {
+    const view = isGuest ? { ...home.state, devices: viewFor(user).devices, scenes: [] } : home.state;
+    const ai = await askBrain(user.name, original, view, lang);
+    if (ai) {
+      const { allowed } = filterPatches(user, ai.patches, home.state.devices);
+      const scenes = canRunScenes(user) ? ai.scenes : [];
+      const changed: Device[] = [];
+      for (const sc of scenes) changed.push(...home.runScene(sc, 'voice', user.name));
+      if (allowed.length) changed.push(...home.apply(allowed, 'voice', `🧠 "${text}"`, user.name));
+      if (changed.length) afterChange(changed, user);
+      return { understood: true, reply: ai.reply, patches: allowed, scenes, ai: true };
+    }
+  } else {
+    remember(user.name, text, result.reply);
+  }
+
+  // Daily briefing on "good morning"
+  if (/\b(good ?morning|daily briefing|brief me|what'?s my day)\b/i.test(text)) {
+    const w = await getWeather();
+    const today = new Date().toDateString();
+    const reminders = home.state.timers.filter((t) => t.kind === 'reminder' && new Date(t.at).toDateString() === today);
+    const t = home.state.devices.find((d) => d.type === 'thermostat');
+    const open = home.state.devices.filter((d) => (d.type === 'lock' && !d.locked) || (d.type === 'garage' && d.open));
+    const parts = [
+      `Good morning, ${user.name}!`,
+      w ? weatherSentence(w) : '',
+      reminders.length ? `Today you asked me to remind you to ${reminders.map((r) => r.label).join(', and ')}.` : '',
+      t?.type === 'thermostat' ? `It's ${t.current}° inside.` : '',
+      !isGuest && open.length ? `Heads up: the ${open.map((d) => d.name.toLowerCase()).join(' and ')} ${open.length > 1 ? 'are' : 'is'} open.` : '',
+    ];
+    result = { ...result, understood: true, reply: `${parts.filter(Boolean).join(' ')}${result.scenes.length || result.patches.length ? ' I’ve opened the blinds and started your morning.' : ''}` };
+  }
+  return result;
+}
+
+app.post('/api/assistant', requireUser, async (req, res) => {
+  res.json(await ask((req as Authed).user, String(req.body?.text ?? '').slice(0, 300), req.body?.lang === 'fr' ? 'fr' : 'en'));
+});
+app.get('/api/assistant/status', requireUser, (_req, res) => res.json({ ai: aiEnabled() }));
 
 // ---- Live socket connection (signed-in users only) ----
 io.use((socket, next) => {
@@ -385,12 +501,52 @@ io.on('connection', (socket: Socket) => {
     if (changed.length) afterChange(changed, user);
   });
 
-  socket.on('assistant:ask', (text: string, reply?: (r: unknown) => void) => {
+  socket.on('timer:cancel', (timerId: string) => {
+    const user = current();
+    if (!user) return;
+    const t = home.state.timers.find((x) => x.id === timerId);
+    if (!t || (user.role === 'guest' && t.createdBy !== user.name)) return;
+    home.state.timers = home.state.timers.filter((x) => x.id !== timerId);
+    broadcast();
+  });
+
+  socket.on('assistant:ask', async (text: string, langOrReply?: unknown, maybeReply?: (r: unknown) => void) => {
     const user = current();
     if (!user) { socket.emit('session:expired'); return; }
-    reply?.(ask(user, String(text ?? '').slice(0, 300)));
+    const reply = typeof langOrReply === 'function' ? langOrReply as (r: unknown) => void : maybeReply;
+    const lang = langOrReply === 'fr' ? 'fr' : 'en';
+    reply?.(await ask(user, String(text ?? '').slice(0, 300), lang));
   });
 });
+
+// ---- Timers, alarms and reminders: check every second ----
+setInterval(() => {
+  const due = home.state.timers.filter((t) => t.at <= Date.now());
+  if (!due.length) return;
+  home.state.timers = home.state.timers.filter((t) => t.at > Date.now());
+  for (const t of due) {
+    const text = t.kind === 'timer'
+      ? `${t.label === 'Timer' ? 'Your timer' : `Your ${t.label} timer`} is done${t.duration ? ` (${fmtDuration(t.duration)})` : ''}.`
+      : t.kind === 'alarm' ? `⏰ It's ${new Date().toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' })}. Time to wake up${t.createdBy ? `, ${t.createdBy}` : ''}!`
+      : `Reminder${t.createdBy ? ` for ${t.createdBy}` : ''}: ${t.label}.`;
+    io.emit('announce', { text, kind: t.kind, ring: true });
+    void push.send({ title: t.kind === 'timer' ? '⏲️ Timer done' : t.kind === 'alarm' ? '⏰ Alarm' : '🔔 Reminder', body: text, tag: `timer-${t.id}` }, ['owner', 'family', 'guest']);
+    if (t.scene) { const changed = home.runScene(t.scene, 'system'); if (changed.length) afterChange(changed, undefined); }
+    home.log('system', text);
+  }
+  broadcast();
+}, 1000).unref();
+
+// ---- Real weather every 10 minutes ----
+async function refreshWeather() {
+  const w = await getWeather();
+  if (!w) return;
+  home.state.weather = w;
+  home.state.outsideTemp = w.temp;
+  broadcast();
+}
+void refreshWeather();
+setInterval(() => void refreshWeather(), 10 * 60_000).unref();
 
 // The simulator: every 2 seconds temperatures drift and the power chart updates on every screen.
 setInterval(() => {
