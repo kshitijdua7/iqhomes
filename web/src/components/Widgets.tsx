@@ -87,19 +87,20 @@ export function EnergyCard({ state }: { state: HomeState }) {
 }
 
 /* ---------------- Activity feed ---------------- */
-const SOURCE_LABEL: Record<ActivityEntry['source'], string> = { app: 'App', voice: 'Voice', scene: 'Scene', system: 'System' };
+const SOURCE_LABEL: Record<ActivityEntry['source'], string> = { app: 'App', voice: 'Voice', scene: 'Scene', system: 'System', hardware: 'Hardware' };
 
 export function ActivityFeed({ items }: { items: ActivityEntry[] }) {
   return (
     <section className="glass rounded-3xl p-5">
       <h2 className="font-display text-sm font-semibold uppercase tracking-widest text-white/60">Activity</h2>
       <ul className="mt-3 max-h-72 space-y-3 overflow-y-auto pr-1">
+        {items.length === 0 && <li className="text-xs text-white/40">Nothing yet.</li>}
         {items.slice(0, 25).map((a) => (
           <li key={a.id} className="fade-in flex gap-3 text-sm">
-            <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${a.source === 'voice' ? 'bg-nova-2' : a.source === 'scene' ? 'bg-aqua' : a.source === 'system' ? 'bg-white/30' : 'bg-nova'}`} />
+            <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${a.source === 'voice' ? 'bg-nova-2' : a.source === 'scene' ? 'bg-aqua' : a.source === 'system' ? 'bg-white/30' : a.source === 'hardware' ? 'bg-emerald-400' : 'bg-nova'}`} />
             <div className="min-w-0">
               <div className="truncate text-white/85">{a.text}</div>
-              <div className="text-[11px] text-white/35">{SOURCE_LABEL[a.source]} · {new Date(a.time).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' })}</div>
+              <div className="text-[11px] text-white/35">{SOURCE_LABEL[a.source]}{a.by ? ` · ${a.by}` : ''} · {new Date(a.time).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' })}</div>
             </div>
           </li>
         ))}

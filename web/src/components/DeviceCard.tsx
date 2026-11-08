@@ -1,4 +1,5 @@
 import type { Device } from '../types';
+import { Telemetry } from './Access';
 
 type Update = (id: string, changes: Partial<Device>) => void;
 
@@ -61,11 +62,20 @@ export function DeviceCard({ device: d, update, roomName }: { device: Device; up
           <div>
             <div className="font-medium leading-tight">{d.name}</div>
             <div className="text-xs text-white/45">{roomName ? `${roomName} · ` : ''}{status(d)}</div>
+            {d.hardware && (
+              <div className={`mt-1 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${d.hardware.online ? 'bg-emerald-400/15 text-emerald-300' : 'bg-red-400/10 text-red-300'}`}
+                   title={d.hardware.online ? 'This is a real physical device' : 'The physical device is not connected'}>
+                <span className={`h-1.5 w-1.5 rounded-full ${d.hardware.online ? 'animate-pulse bg-emerald-300' : 'bg-red-300'}`} />
+                {d.hardware.online ? 'Real' : 'Offline'} · {d.hardware.kind}
+              </div>
+            )}
           </div>
         </div>
         {'on' in d && <Toggle on={d.on} label={`Toggle ${d.name}`} onChange={() => update(d.id, { on: !d.on })} />}
         {d.type === 'lock' && <Toggle on={d.locked} label={`Lock ${d.name}`} onChange={() => update(d.id, { locked: !d.locked })} />}
       </div>
+
+      {d.hardware?.online && d.hardware.telemetry && <div className="relative mt-3"><Telemetry t={d.hardware.telemetry} /></div>}
 
       <div className="relative mt-4 space-y-3">
         {d.type === 'light' && (

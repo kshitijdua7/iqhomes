@@ -1,4 +1,5 @@
-import webpush, { type PushSubscription } from 'web-push';
+import * as webpush from 'web-push';
+type PushSubscription = webpush.PushSubscription;
 import type { Role } from './types.js';
 
 /**

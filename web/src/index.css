@@ -80,3 +80,20 @@ input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; border-radius
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* wrong PIN */
+.shake { animation: shake .4s ease; }
+@keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+
+/* live alert toasts */
+.toast-in { animation: toastIn .35s cubic-bezier(.2, .9, .3, 1.2) both; }
+@keyframes toastIn { from { opacity: 0; transform: translateY(-14px) scale(.96); } }
+
+/* installed app: keep content clear of the notch / home indicator */
+@media (display-mode: standalone) {
+  body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shake, .toast-in, .fade-in { animation: none; }
+}

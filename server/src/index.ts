@@ -118,7 +118,7 @@ function watchHardware() {
     if (!d.hardware) continue;
     const prev = wasOnline.get(d.id);
     wasOnline.set(d.id, d.hardware.online);
-    if (prev === undefined || prev === d.hardware.online) continue;
+    if (prev === d.hardware.online || (prev === undefined && !d.hardware.online)) continue;
     home.log('hardware', `${d.hardware.online ? '🟢' : '🔴'} ${d.name} (${d.hardware.kind}) ${d.hardware.online ? 'connected' : 'went offline'}`);
     if (!d.hardware.online) alert({ title: `🔴 ${d.name} went offline`, body: `The ${d.hardware.kind} lost its connection.`, tag: `hw-${d.id}` }, ['owner']);
   }
@@ -201,23 +201,40 @@ app.post('/api/push/test', requireUser, async (req, res) => {
 });
 
 // ---- Voice / text assistant, with permissions ----
-function ask(user: StoredUser, text: string) {
-  const result = interpret(text, viewFor(user));
-  const { allowed, denied } = filterPatches(user, result.patches, home.state.devices);
-  const scenes = canRunScenes(user) ? result.scenes : [];
-  const changed: Device[] = [];
-  for (const s of scenes) changed.push(...home.runScene(s, 'voice', user.name));
-  if (allowed.length) changed.push(...home.apply(allowed, 'voice', `🎙️ "${text.trim()}"`, user.name));
-  if (changed.length) afterChange(changed, user);
+/** Topics a guest can't even ask about, because their pass hides those devices. */
+const GUEST_PRIVATE = /\b(lock|locked|unlock|door|doors|thermostat|temperature|heat|heating|cool|cooling|degrees?|cold|warm|hot|energy|power|watts?|bill)\b/;
 
-  let reply = result.reply;
-  if (denied.length || scenes.length < result.scenes.length) {
-    const what = denied.length ? denied.map((d) => d.name).join(', ') : 'whole-house scenes';
-    reply = allowed.length
-      ? `${reply} (I skipped ${what}: your guest pass doesn't cover that.)`
-      : `Sorry ${user.name}, your guest pass doesn't let you control ${what}.`;
+function ask(user: StoredUser, text: string) {
+  if (user.role !== 'guest') {
+    const result = interpret(text, home.state);
+    const changed: Device[] = [];
+    for (const s of result.scenes) changed.push(...home.runScene(s, 'voice', user.name));
+    if (result.patches.length) changed.push(...home.apply(result.patches, 'voice', `🎙️ "${text.trim()}"`, user.name));
+    if (changed.length) afterChange(changed, user);
+    return result;
   }
-  return { ...result, reply, patches: allowed, scenes, understood: result.understood && (allowed.length > 0 || scenes.length > 0 || !result.patches.length) };
+
+  // Guests: understand the request against the whole house only to name what was refused,
+  // but act and reply using just the devices their pass covers.
+  const full = interpret(text, home.state);
+  const { denied } = filterPatches(user, full.patches, home.state.devices);
+  // every room/scene name stays known (so "kitchen" is understood), but only their devices can be acted on
+  const mine = interpret(text, { ...home.state, devices: viewFor(user).devices });
+  const refusedScene = full.scenes.length > 0;
+  const nothingToDo = !mine.patches.length;
+
+  if (nothingToDo && (denied.length || refusedScene || GUEST_PRIVATE.test(text.toLowerCase()))) {
+    const what = denied.length ? denied.map((d) => d.name).join(', ') : refusedScene ? 'whole-house scenes' : 'that';
+    return { understood: false, reply: `Sorry ${user.name}, your guest pass doesn't cover ${what}.`, patches: [], scenes: [] };
+  }
+
+  const { allowed } = filterPatches(user, mine.patches, home.state.devices); // belt and braces
+  if (allowed.length) {
+    const changed = home.apply(allowed, 'voice', `🎙️ "${text.trim()}"`, user.name);
+    if (changed.length) afterChange(changed, user);
+  }
+  const skipped = denied.length ? ` (${denied.map((d) => d.name).join(', ')} ${denied.length > 1 ? 'aren’t' : 'isn’t'} on your guest pass.)` : '';
+  return { ...mine, scenes: [], patches: allowed, reply: mine.reply + skipped };
 }
 
 app.post('/api/assistant', requireUser, (req, res) => res.json(ask((req as Authed).user, String(req.body?.text ?? '').slice(0, 300))));
